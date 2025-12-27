@@ -9,10 +9,6 @@ from opencood.models.sub_modules.naive_compress import NaiveCompressor
 from opencood.models.fuse_modules.codriving_attn import CoDriving
 import torch
 
-from opencood.directed_cp_modules.qc_net import QCNet, RSUDirectionAttentionScore
-from opencood.directed_cp_modules.channel_alignment import ChannelAlignmentModule
-from opencood.directed_cp_modules.pose_embedding import PoseEmbeddingExtractor
-
 class centerpointcodriving(nn.Module):
     def __init__(self, args):
         super(centerpointcodriving, self).__init__()

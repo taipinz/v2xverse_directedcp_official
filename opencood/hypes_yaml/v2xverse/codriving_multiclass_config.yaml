@@ -12,8 +12,8 @@ test_dir: '/media/tsinghua3090/66c73fca-acad-4d88-a5b9-47aa246d1d02/dataset/data
 yaml_parser: load_point_pillar_params
 
 train_params:
-  batch_size: 2
-  epoches: 40
+  batch_size: 4
+  epoches: 10
   eval_freq: 1
   max_cav: 5
   save_freq: 1
