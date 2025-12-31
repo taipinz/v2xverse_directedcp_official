@@ -20,7 +20,6 @@ external_paths/
 simulation/
 data/
 dataset/
-datasets/
 
 # 日志与临时文件
 output/
