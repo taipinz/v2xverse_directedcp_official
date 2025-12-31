@@ -53,8 +53,8 @@ postprocess:
     feature_stride: 2
     h: 1.56
     l: 3.9
-    num: 1
-    r: &anchor_yaw [0]
+    num: 3
+    r: &anchor_yaw [0,0,0]
     vd: 36
     vh: 0.125
     vw: 0.125
