@@ -1,10 +1,4 @@
 name: v2xverse_codriving_ms_atten_multiclass
-#root_dir: external_paths/data_root
-#validate_dir: external_paths/data_root
-#test_dir: external_paths/data_root
-#root_dir: '/home/frankwang122222/V2Xverse/V2Xverse/dataset/dataset_v2xverse/'
-#validate_dir: '/home/frankwang122222/V2Xverse/V2Xverse/dataset/dataset_v2xverse/'
-#test_dir: '/home/frankwang122222/V2Xverse/V2Xverse/dataset/dataset_v2xverse/'
 root_dir: '/media/tsinghua3090/66c73fca-acad-4d88-a5b9-47aa246d1d02/dataset/dataset_v2xverse'
 validate_dir: '/media/tsinghua3090/66c73fca-acad-4d88-a5b9-47aa246d1d02/dataset/dataset_v2xverse'
 test_dir: '/media/tsinghua3090/66c73fca-acad-4d88-a5b9-47aa246d1d02/dataset/dataset_v2xverse'
@@ -13,7 +7,7 @@ yaml_parser: load_point_pillar_params
 
 train_params:
   batch_size: 4
-  epoches: 10
+  epoches: 40
   eval_freq: 1
   max_cav: 5
   save_freq: 1
@@ -81,6 +75,26 @@ postprocess:
 model:
   core_method: center_point_codriving
   args:
+    # ==========================================================
+    # [关键修改] Directed-CP 配置块
+    # ==========================================================
+    use_directed_cp: true  # 开启 Directed-CP 模块
+
+    directed_cp_args:
+      # 通信预算 (Budget): 0.2 表示只保留 20% 的特征块进行传输
+      # 调试建议：如果担心代码报错，可以先设为 1.0 (全量)，跑通后再改为 0.2
+      comm_budget: 0.2
+
+      # RSU 方向注意力 (DAS) 参数
+      # sigma1: 相对重要性阈值 (越低越灵敏)
+      # sigma2: 绝对复杂性阈值
+      sigma1: 0.1
+      sigma2: 0.1
+
+      # QCNet 网络隐藏层维度
+      hidden_dim: 128
+    # ==========================================================
+
     anchor_number: 3
     voxel_size: *voxel_size
     lidar_range: *lidar_range
@@ -112,6 +126,7 @@ model:
       num_filters: *id003
       only_attention: true
       voxel_size: *voxel_size
+      # [注意] 确保此处没有 'communication' 配置块，防止与 Directed-CP 冲突
 
     pillar_vfe:
       num_filters: [64]
