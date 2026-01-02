@@ -199,22 +199,33 @@ class centerpointcodriving(nn.Module):
         cls = self.cls_head(fused_feature)
         bbox = self.reg_head(fused_feature)
 
-        # (这里是原有的 box 生成代码，保持不变即可，为了节省篇幅，省略部分重复代码，请保留原文件中的 generate_predicted_boxes 及后续处理)
-        # ... [请保留你原文件这里到 return output_dict 的所有代码] ...
-
-        # 以下是占位符，请确保保留了原有的后处理代码
-        box_preds_for_infer = bbox.permute(0, 2, 3, 1).contiguous()
-        # ... 省略中间解码过程 ...
-        # 注意：这里需要你复制原文件中从 box_preds_for_infer 开始直到 return 的代码
-
-        # 简单起见，我把 output_dict 的构造补全，防止你复制漏了：
-        # (请将原代码中 generate_predicted_boxes 和 output_dict 构造部分完整粘回这里)
-        # 为确保运行，我写一个简化的返回（你需要用原代码替换这部分）：
+        # 生成预测框
         _, bbox_temp = self.generate_predicted_boxes(cls, bbox)
+        
+        # 构造基础输出字典
         output_dict = {'cls_preds': cls, 'reg_preds': bbox_temp, 'bbox_preds': bbox}
         result_dict.update({'fused_feature': fused_feature})
         output_dict.update(result_dict)
-        # 单车结果更新...
+
+        # =======================================================
+        # [关键修复] 添加多类别推理所需的专用 Key
+        # =======================================================
+        # 1. 添加 cls_preds_multiclass
+        output_dict['cls_preds_multiclass'] = cls
+
+        # 2. 添加 reg_preds_multiclass
+        # bbox 原始形状: [B, 24, H, W] (3 anchors * 8 codes = 24)
+        # 目标形状: [B, 3, 8, H, W]
+        # 注意：不再使用 args.get，而是检查通道数是否符合 3个Anchor (24通道)
+        B, C, H, W = bbox.shape
+        if C == 24: # 3 anchors * 8 codes
+             num_anchors = 3  
+             code_size = 8
+             # 重塑 Tensor 以适配多类别后处理脚本
+             output_dict['reg_preds_multiclass'] = bbox.view(B, num_anchors, code_size, H, W)
+        # =======================================================
+
+        # 单车结果更新
         _, bbox_temp_single = self.generate_predicted_boxes(psm_single, rm_single)
         output_dict.update({'cls_preds_single': psm_single, 'bbox_preds_single': rm_single})
 

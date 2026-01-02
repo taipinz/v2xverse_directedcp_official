@@ -648,32 +648,56 @@ def getIntermediateFusionDataset(cls):
             return output_dict
 
 
+# 注意：这里 def 前面有 8 个空格
         def post_process(self, data_dict, output_dict):
             """
             Process the outputs of the model to 2D/3D bounding box.
-
-            Parameters
-            ----------
-            data_dict : dict
-                The dictionary containing the origin input data of model.
-
-            output_dict :dict
-                The dictionary containing the output of the model.
-
-            Returns
-            -------
-            pred_box_tensor : torch.Tensor
-                The tensor of prediction bounding box after NMS.
-            gt_box_tensor : torch.Tensor
-                The tensor of gt bounding box.
             """
-            pred_box_tensor, pred_score = \
-                self.post_processor.post_process(data_dict, output_dict)
+            if not hasattr(self, 'anchors'):
+                import torch
+                anchors_numpy = self.generate_anchor(self.params['anchor_args'])
+                self.anchors = torch.from_numpy(anchors_numpy)
+                if torch.cuda.is_available():
+                    self.anchors = self.anchors.cuda()
+        # =====================================
+
+        # 获取所有 Anchors (总量 82944)
+            anchor_box = self.anchors
+            pred_box_list = []
+            pred_score_list = []
+
+            # 浅拷贝字典，防止修改原始数据
+            data_dict_single = data_dict.copy()
+            output_dict_single = output_dict.copy()
+
+            # 循环处理每个类别
+            for i in range(len(self.anchor_num)):
+                # 提取单类数据
+                output_dict_single['ego']['cls_preds'] = output_dict['ego']['cls_preds_multiclass'][:,i,:,:]
+                output_dict_single['ego']['reg_preds'] = output_dict['ego']['reg_preds_multiclass'][:,i,:,:]
+                output_dict_single['anchor_id'] = i  
+
+                # 调用后处理
+                box_res = self.post_processor.post_process(data_dict_single, output_dict_single)
+                pred_box_single, pred_score_single = box_res
+                
+                if pred_box_single is not None:
+                    pred_box_list.append(pred_box_single)
+                    pred_score_list.append(pred_score_single)
+            
+            # 合并结果
+            import torch
+            if len(pred_box_list) > 0:
+                pred_box_tensor = torch.cat(pred_box_list, dim=0)
+                pred_score = torch.cat(pred_score_list, dim=0)
+            else:
+                pred_box_tensor = None
+                pred_score = None
+
             gt_box_tensor = self.post_processor.generate_gt_bbx(data_dict)
 
             return pred_box_tensor, pred_score, gt_box_tensor
 
-
+    # 注意：这里 return 前面只有 4 个空格 (回到 class 定义的层级)
     return IntermediateFusionDataset
-
 

@@ -19,7 +19,8 @@ from opencood.utils.camera_utils import (
 )
 # from opencood.utils.heter_utils import AgentSelector
 from opencood.utils.common_utils import merge_features_to_dict
-from opencood.utils.transformation_utils import x1_to_x2, x_to_world, get_pairwise_transformation, get_pairwise_transformation_asymmetric
+from opencood.utils.transformation_utils import x1_to_x2, x_to_world, get_pairwise_transformation, \
+    get_pairwise_transformation_asymmetric
 from opencood.utils.pose_utils import add_noise_data_dict, add_noise_data_dict_asymmetric
 from opencood.utils.pcd_utils import (
     mask_points_by_range,
@@ -35,14 +36,16 @@ def getIntermediatemulticlassFusionDataset(cls):
     """
     cls: the Basedataset.
     """
+
     class IntermediatemulticlassFusionDataset(cls):
         def __init__(self, params, visualize, train=True):
             super().__init__(params, visualize, train)
             # intermediate and supervise single
-            self.supervise_single = True if ('supervise_single' in params['model']['args'] and params['model']['args']['supervise_single']) \
-                                        else False
-            self.proj_first = False if 'proj_first' not in params['fusion']['args']\
-                                         else params['fusion']['args']['proj_first']
+            self.supervise_single = True if (
+                        'supervise_single' in params['model']['args'] and params['model']['args']['supervise_single']) \
+                else False
+            self.proj_first = False if 'proj_first' not in params['fusion']['args'] \
+                else params['fusion']['args']['proj_first']
 
             self.anchor_box = self.post_processor.generate_anchor_box()
             self.anchor_box_torch = torch.from_numpy(self.anchor_box)
@@ -57,17 +60,17 @@ def getIntermediatemulticlassFusionDataset(cls):
             self.box_align = False
             if "box_align" in params:
                 self.box_align = True
-                self.stage1_result_path = params['box_align']['train_result'] if train else params['box_align']['val_result']
+                self.stage1_result_path = params['box_align']['train_result'] if train else params['box_align'][
+                    'val_result']
                 self.stage1_result = read_json(self.stage1_result_path)
                 self.box_align_args = params['box_align']['args']
 
             self.multiclass = params['model']['args']['multi_class']
-            self.online_eval_only = False                
+            self.online_eval_only = False
 
         def get_item_single_car(self, selected_cav_base, ego_cav_base, tpe='all', cav_id='car_0', online_eval=False):
             """
             Process a single CAV's information for the train/test pipeline.
-
 
             Parameters
             ----------
@@ -90,11 +93,11 @@ def getIntermediatemulticlassFusionDataset(cls):
             # calculate the transformation matrix
             transformation_matrix = \
                 x1_to_x2(selected_cav_base['params']['lidar_pose'],
-                        ego_pose) # T_ego_cav
+                         ego_pose)  # T_ego_cav
             transformation_matrix_clean = \
                 x1_to_x2(selected_cav_base['params']['lidar_pose_clean'],
-                        ego_pose_clean)
-            
+                         ego_pose_clean)
+
             # lidar
             if tpe == 'all':
                 if self.load_lidar_file or self.visualize:
@@ -108,7 +111,7 @@ def getIntermediatemulticlassFusionDataset(cls):
                     # x,y,z in ego space
                     projected_lidar = \
                         box_utils.project_points_by_matrix_torch(lidar_np[:, :3],
-                                                                    transformation_matrix)
+                                                                 transformation_matrix)
                     if self.proj_first:
                         lidar_np[:, :3] = projected_lidar
 
@@ -118,14 +121,14 @@ def getIntermediatemulticlassFusionDataset(cls):
 
                     if self.kd_flag:
                         lidar_proj_np = copy.deepcopy(lidar_np)
-                        lidar_proj_np[:,:3] = projected_lidar
+                        lidar_proj_np[:, :3] = projected_lidar
 
                         selected_cav_processed.update({'projected_lidar': lidar_proj_np})
 
                     processed_lidar = self.pre_processor.preprocess(lidar_np)
                     selected_cav_processed.update({'processed_features': processed_lidar})
 
-            if True: # not online_eval:
+            if True:  # not online_eval:
                 # generate targets label single GT, note the reference pose is itself.
                 object_bbx_center, object_bbx_mask, object_ids = self.generate_object_center(
                     [selected_cav_base], selected_cav_base['params']['lidar_pose']
@@ -138,9 +141,9 @@ def getIntermediatemulticlassFusionDataset(cls):
                             gt_box_center=object_bbx_center, anchors=self.anchor_box, mask=object_bbx_mask
                         )
                 selected_cav_processed.update({
-                                    "single_label_dict": label_dict,
-                                    "single_object_bbx_center": object_bbx_center,
-                                    "single_object_bbx_mask": object_bbx_mask})
+                    "single_label_dict": label_dict,
+                    "single_object_bbx_center": object_bbx_center,
+                    "single_object_bbx_mask": object_bbx_mask})
 
             if tpe == 'all':
                 # camera
@@ -210,30 +213,29 @@ def getIntermediatemulticlassFusionDataset(cls):
                         trans.append(tran)
                         post_rots.append(post_rot)
                         post_trans.append(post_tran)
-                        
 
                     selected_cav_processed.update(
                         {
-                        "image_inputs": 
-                            {
-                                "imgs": torch.stack(imgs), # [Ncam, 3or4, H, W]
-                                "intrins": torch.stack(intrins),
-                                "extrinsics": torch.stack(extrinsics),
-                                "rots": torch.stack(rots),
-                                "trans": torch.stack(trans),
-                                "post_rots": torch.stack(post_rots),
-                                "post_trans": torch.stack(post_trans),
-                            }
+                            "image_inputs":
+                                {
+                                    "imgs": torch.stack(imgs),  # [Ncam, 3or4, H, W]
+                                    "intrins": torch.stack(intrins),
+                                    "extrinsics": torch.stack(extrinsics),
+                                    "rots": torch.stack(rots),
+                                    "trans": torch.stack(trans),
+                                    "post_rots": torch.stack(post_rots),
+                                    "post_trans": torch.stack(post_trans),
+                                }
                         }
                     )
 
                 # anchor box
                 selected_cav_processed.update({"anchor_box": self.anchor_box})
 
-            if True: # not online_eval:
+            if True:  # not online_eval:
                 # note the reference pose ego
                 object_bbx_center, object_bbx_mask, object_ids = self.generate_object_center([selected_cav_base],
-                                                            ego_pose_clean)
+                                                                                             ego_pose_clean)
                 selected_cav_processed.update(
                     {
                         "object_bbx_center": object_bbx_center[object_bbx_mask == 1],
@@ -248,12 +250,11 @@ def getIntermediatemulticlassFusionDataset(cls):
                 }
             )
 
-
             return selected_cav_processed
 
         def __getitem__(self, idx, extra_source=None, data_dir=None, plan_without_perception_gt=True):
             if (data_dir is not None) and (plan_without_perception_gt):
-                extra_source=1
+                extra_source = 1
             object_bbx_center_list = []
             object_bbx_mask_list = []
             object_id_dict = {}
@@ -261,14 +262,13 @@ def getIntermediatemulticlassFusionDataset(cls):
             object_bbx_center_list_single = []
             object_bbx_mask_list_single = []
 
-
             output_dict = {}
             for tpe in ['all', 0, 1, 3]:
                 output_single_class = self.__getitem_single_class__(idx, tpe, extra_source, data_dir)
                 output_dict[tpe] = output_single_class
                 if tpe == 'all':
                     continue
-                elif tpe == 'all' and extra_source!=None:
+                elif tpe == 'all' and extra_source != None:
                     break
                 object_bbx_center_list.append(output_single_class['ego']['object_bbx_center'])
                 object_bbx_mask_list.append(output_single_class['ego']['object_bbx_mask'])
@@ -277,13 +277,15 @@ def getIntermediatemulticlassFusionDataset(cls):
                     object_bbx_mask_list_single.append(output_single_class['ego']['single_object_bbx_mask_torch'])
 
                 object_id_dict[tpe] = output_single_class['ego']['object_ids']
-            
-            if True: # self.multiclass and extra_source==None:
+
+            if True:  # self.multiclass and extra_source==None:
                 output_dict['all']['ego']['object_bbx_center'] = np.stack(object_bbx_center_list, axis=0)
                 output_dict['all']['ego']['object_bbx_mask'] = np.stack(object_bbx_mask_list, axis=0)
                 if self.supervise_single:
-                    output_dict['all']['ego']['single_object_bbx_center_torch'] = torch.stack(object_bbx_center_list_single, axis=1)
-                    output_dict['all']['ego']['single_object_bbx_mask_torch'] = torch.stack(object_bbx_mask_list_single, axis=1)
+                    output_dict['all']['ego']['single_object_bbx_center_torch'] = torch.stack(
+                        object_bbx_center_list_single, axis=1)
+                    output_dict['all']['ego']['single_object_bbx_mask_torch'] = torch.stack(object_bbx_mask_list_single,
+                                                                                            axis=1)
 
                 output_dict['all']['ego']['object_ids'] = object_id_dict
             # print('finish get item')
@@ -297,8 +299,8 @@ def getIntermediatemulticlassFusionDataset(cls):
                 base_data_dict = self.retrieve_base_data(idx=None, tpe=tpe, data_dir=data_dir)
             elif extra_source is not None:
                 base_data_dict = self.retrieve_base_data(idx=None, tpe=tpe, extra_source=extra_source)
-            
-            base_data_dict = add_noise_data_dict_asymmetric(base_data_dict,self.params['noise_setting'])
+
+            base_data_dict = add_noise_data_dict_asymmetric(base_data_dict, self.params['noise_setting'])
             processed_data_dict = OrderedDict()
             processed_data_dict['ego'] = {}
 
@@ -313,7 +315,7 @@ def getIntermediatemulticlassFusionDataset(cls):
                     ego_lidar_pose = cav_content['params']['lidar_pose']
                     ego_cav_base = cav_content
                     break
-                
+
             assert cav_id == list(base_data_dict.keys())[
                 0], "The first element in the OrderedDict must be ego"
             assert ego_id != -1
@@ -330,7 +332,7 @@ def getIntermediatemulticlassFusionDataset(cls):
             lidar_pose_list = []
             lidar_pose_clean_list = []
             cav_id_list = []
-            projected_lidar_clean_list = [] # disconet
+            projected_lidar_clean_list = []  # disconet
 
             if self.visualize or self.kd_flag:
                 projected_lidar_stack = []
@@ -340,10 +342,10 @@ def getIntermediatemulticlassFusionDataset(cls):
                 # check if the cav is within the communication range with ego
                 distance = \
                     math.sqrt((selected_cav_base['params']['lidar_pose'][0] -
-                            ego_lidar_pose[0]) ** 2 + (
-                                    selected_cav_base['params'][
-                                        'lidar_pose'][1] - ego_lidar_pose[
-                                        1]) ** 2)
+                               ego_lidar_pose[0]) ** 2 + (
+                                      selected_cav_base['params'][
+                                          'lidar_pose'][1] - ego_lidar_pose[
+                                          1]) ** 2)
 
                 # if distance is too far, we will just skip this agent
                 if distance > self.params['comm_range']:
@@ -351,63 +353,60 @@ def getIntermediatemulticlassFusionDataset(cls):
                     continue
 
                 lidar_pose_clean_list.append(selected_cav_base['params']['lidar_pose_clean'])
-                lidar_pose_list.append(selected_cav_base['params']['lidar_pose']) # 6dof pose
-                cav_id_list.append(cav_id)   
+                lidar_pose_list.append(selected_cav_base['params']['lidar_pose'])  # 6dof pose
+                cav_id_list.append(cav_id)
 
             for cav_id in too_far:
                 base_data_dict.pop(cav_id)
 
-            ########## Updated by Yifan Lu 2022.1.26 ############
             # box align to correct pose.
-            # stage1_content contains all agent. Even out of comm range.
             if self.box_align and str(idx) in self.stage1_result.keys():  # False
                 from opencood.models.sub_modules.box_align_v2 import box_alignment_relative_sample_np
                 stage1_content = self.stage1_result[str(idx)]
                 if stage1_content is not None:
-                    all_agent_id_list = stage1_content['cav_id_list'] # include those out of range
+                    all_agent_id_list = stage1_content['cav_id_list']  # include those out of range
                     all_agent_corners_list = stage1_content['pred_corner3d_np_list']
                     all_agent_uncertainty_list = stage1_content['uncertainty_np_list']
 
                     cur_agent_id_list = cav_id_list
                     cur_agent_pose = [base_data_dict[cav_id]['params']['lidar_pose'] for cav_id in cav_id_list]
                     cur_agnet_pose = np.array(cur_agent_pose)
-                    cur_agent_in_all_agent = [all_agent_id_list.index(cur_agent) for cur_agent in cur_agent_id_list] # indexing current agent in `all_agent_id_list`
+                    cur_agent_in_all_agent = [all_agent_id_list.index(cur_agent) for cur_agent in
+                                              cur_agent_id_list]  # indexing current agent in `all_agent_id_list`
 
-                    pred_corners_list = [np.array(all_agent_corners_list[cur_in_all_ind], dtype=np.float64) 
-                                            for cur_in_all_ind in cur_agent_in_all_agent]
-                    uncertainty_list = [np.array(all_agent_uncertainty_list[cur_in_all_ind], dtype=np.float64) 
-                                            for cur_in_all_ind in cur_agent_in_all_agent]
+                    pred_corners_list = [np.array(all_agent_corners_list[cur_in_all_ind], dtype=np.float64)
+                                         for cur_in_all_ind in cur_agent_in_all_agent]
+                    uncertainty_list = [np.array(all_agent_uncertainty_list[cur_in_all_ind], dtype=np.float64)
+                                        for cur_in_all_ind in cur_agent_in_all_agent]
 
                     if sum([len(pred_corners) for pred_corners in pred_corners_list]) != 0:
                         refined_pose = box_alignment_relative_sample_np(pred_corners_list,
-                                                                        cur_agnet_pose, 
-                                                                        uncertainty_list=uncertainty_list, 
+                                                                        cur_agnet_pose,
+                                                                        uncertainty_list=uncertainty_list,
                                                                         **self.box_align_args)
-                        cur_agnet_pose[:,[0,1,4]] = refined_pose 
+                        cur_agnet_pose[:, [0, 1, 4]] = refined_pose
 
                         for i, cav_id in enumerate(cav_id_list):
                             lidar_pose_list[i] = cur_agnet_pose[i].tolist()
                             base_data_dict[cav_id]['params']['lidar_pose'] = cur_agnet_pose[i].tolist()
 
-
-
             pairwise_t_matrix = \
                 get_pairwise_transformation_asymmetric(base_data_dict,
-                                                self.max_cav,
-                                                self.proj_first)
+                                                       self.max_cav,
+                                                       self.proj_first)
 
             lidar_poses = np.array(lidar_pose_list).reshape(-1, 6)  # [N_cav, 6]
             lidar_poses_clean = np.array(lidar_pose_clean_list).reshape(-1, 6)  # [N_cav, 6]
-            
+
             # merge preprocessed features from different cavs into the same dict
             cav_num = len(cav_id_list)
-            
-            # heterogeneous 
+
+            # heterogeneous
             if self.heterogeneous:
                 lidar_agent, camera_agent = self.selector.select_agent(idx)
                 lidar_agent = lidar_agent[:cav_num]
                 processed_data_dict['ego'].update({"lidar_agent": lidar_agent})
-            
+
             for _i, cav_id in enumerate(cav_id_list):
                 selected_cav_base = base_data_dict[cav_id]
 
@@ -422,9 +421,9 @@ def getIntermediatemulticlassFusionDataset(cls):
                     ego_cav_base,
                     tpe,
                     cav_id,
-                    extra_source!=None)
-                    
-                if True: #extra_source==None:
+                    extra_source != None)
+
+                if True:  # extra_source==None:
                     object_stack.append(selected_cav_processed['object_bbx_center'])
                     object_id_stack += selected_cav_processed['object_ids']
                 if tpe == 'all':
@@ -438,14 +437,14 @@ def getIntermediatemulticlassFusionDataset(cls):
                     if self.visualize or self.kd_flag:
                         projected_lidar_stack.append(
                             selected_cav_processed['projected_lidar'])
-                
-                if True: #self.supervise_single and extra_source==None:
+
+                if True:  # self.supervise_single and extra_source==None:
                     single_label_list.append(selected_cav_processed['single_label_dict'])
                     single_object_bbx_center_list.append(selected_cav_processed['single_object_bbx_center'])
                     single_object_bbx_mask_list.append(selected_cav_processed['single_object_bbx_mask'])
 
             # generate single view GT label
-            if True: # self.supervise_single and extra_source==None:
+            if True:  # self.supervise_single and extra_source==None:
                 single_label_dicts = {}
                 if tpe == 'all':
                     # unused label
@@ -457,19 +456,19 @@ def getIntermediatemulticlassFusionDataset(cls):
                     "single_label_dict_torch": single_label_dicts,
                     "single_object_bbx_center_torch": single_object_bbx_center,
                     "single_object_bbx_mask_torch": single_object_bbx_mask,
-                    })
+                })
 
             if self.kd_flag:
                 stack_lidar_np = np.vstack(projected_lidar_stack)
                 stack_lidar_np = mask_points_by_range(stack_lidar_np,
-                                            self.params['preprocess'][
-                                                'cav_lidar_range'])
+                                                      self.params['preprocess'][
+                                                          'cav_lidar_range'])
                 stack_feature_processed = self.pre_processor.preprocess(stack_lidar_np)
                 processed_data_dict['ego'].update({'teacher_processed_lidar':
-                stack_feature_processed})
+                                                       stack_feature_processed})
 
-            if True: # extra_source is None:
-                # exclude all repetitive objects    
+            if True:  # extra_source is None:
+                # exclude all repetitive objects
                 unique_indices = \
                     [object_id_stack.index(x) for x in set(object_id_stack)]
                 object_stack = np.vstack(object_stack)
@@ -484,9 +483,9 @@ def getIntermediatemulticlassFusionDataset(cls):
 
                 processed_data_dict['ego'].update(
                     {'object_bbx_center': object_bbx_center,  # (100,7)
-                    'object_bbx_mask': mask, # (100,)
-                    'object_ids': [object_id_stack[i] for i in unique_indices],     
-                    }   
+                     'object_bbx_mask': mask,  # (100,)
+                     'object_ids': [object_id_stack[i] for i in unique_indices],
+                     }
                 )
 
             # generate targets label
@@ -502,12 +501,12 @@ def getIntermediatemulticlassFusionDataset(cls):
 
             processed_data_dict['ego'].update(
                 {
-                'anchor_box': self.anchor_box,
-                'label_dict': label_dict,
-                'cav_num': cav_num,
-                'pairwise_t_matrix': pairwise_t_matrix,
-                'lidar_poses_clean': lidar_poses_clean,
-                'lidar_poses': lidar_poses})
+                    'anchor_box': self.anchor_box,
+                    'label_dict': label_dict,
+                    'cav_num': cav_num,
+                    'pairwise_t_matrix': pairwise_t_matrix,
+                    'lidar_poses_clean': lidar_poses_clean,
+                    'lidar_poses': lidar_poses})
 
             if tpe == 'all':
                 if self.load_lidar_file:
@@ -519,14 +518,13 @@ def getIntermediatemulticlassFusionDataset(cls):
 
                 if self.visualize:
                     processed_data_dict['ego'].update({'origin_lidar':
-                                                    #    projected_lidar_stack})
                         np.vstack(
                             projected_lidar_stack)})
-                    processed_data_dict['ego'].update({'lidar_len': [len(projected_lidar_stack[i]) for i in range(len(projected_lidar_stack))]})
-
+                    processed_data_dict['ego'].update(
+                        {'lidar_len': [len(projected_lidar_stack[i]) for i in range(len(projected_lidar_stack))]})
 
                 processed_data_dict['ego'].update({'sample_idx': idx,
-                                                    'cav_id_list': cav_id_list})
+                                                   'cav_id_list': cav_id_list})
 
                 img_front_list = []
                 img_left_list = []
@@ -537,19 +535,19 @@ def getIntermediatemulticlassFusionDataset(cls):
                     for car_id in base_data_dict:
                         if not base_data_dict[car_id]['ego'] == True:
                             continue
-                        if 'rgb_front' in base_data_dict[car_id] and 'rgb_left' in base_data_dict[car_id] and 'rgb_right' in base_data_dict[car_id] and 'BEV' in base_data_dict[car_id] :
+                        if 'rgb_front' in base_data_dict[car_id] and 'rgb_left' in base_data_dict[
+                            car_id] and 'rgb_right' in base_data_dict[car_id] and 'BEV' in base_data_dict[car_id]:
                             img_front_list.append(base_data_dict[car_id]['rgb_front'])
                             img_left_list.append(base_data_dict[car_id]['rgb_left'])
                             img_right_list.append(base_data_dict[car_id]['rgb_right'])
                             BEV_list.append(base_data_dict[car_id]['BEV'])
                 processed_data_dict['ego'].update({'img_front': img_front_list,
-                                                    'img_left': img_left_list,
-                                                    'img_right': img_right_list,
-                                                    'BEV': BEV_list})
+                                                   'img_left': img_left_list,
+                                                   'img_right': img_right_list,
+                                                   'BEV': BEV_list})
             processed_data_dict['ego'].update({'scene_dict': base_data_dict['car_0']['scene_dict'],
-                                                    'frame_id': base_data_dict['car_0']['frame_id'],
-                                                    })    
-
+                                               'frame_id': base_data_dict['car_0']['frame_id'],
+                                               })
 
             # TODO: LSS debug
             processed_data_dict['ego'].update({"det_data": base_data_dict['car_0']['det_data']})
@@ -561,7 +559,6 @@ def getIntermediatemulticlassFusionDataset(cls):
             ##
 
             return processed_data_dict
-
 
         def collate_batch_train(self, batch, online_eval_only=False):
             # Intermediate fusion is different the other two
@@ -579,7 +576,7 @@ def getIntermediatemulticlassFusionDataset(cls):
             origin_lidar = []
             lidar_len = []
             lidar_pose_clean_list = []
-            
+
             # heterogeneous
             lidar_agent_list = []
 
@@ -596,7 +593,7 @@ def getIntermediatemulticlassFusionDataset(cls):
             BEV = []
 
             dict_list = []
-            
+
             # TODO: LSS debug
             det_data = []
             detmap_pose = []
@@ -619,13 +616,14 @@ def getIntermediatemulticlassFusionDataset(cls):
                     object_ids.append(ego_dict['object_ids'])
                 else:
                     object_ids.append(None)
-                lidar_pose_list.append(ego_dict['lidar_poses']) # ego_dict['lidar_pose'] is np.ndarray [N,6]
+                lidar_pose_list.append(ego_dict['lidar_poses'])  # ego_dict['lidar_pose'] is np.ndarray [N,6]
                 lidar_pose_clean_list.append(ego_dict['lidar_poses_clean'])
                 if self.load_lidar_file:
                     processed_lidar_list.append(ego_dict['processed_lidar'])
                 if self.load_camera_file:
-                    image_inputs_list.append(ego_dict['image_inputs']) # different cav_num, ego_dict['image_inputs'] is dict.
-                
+                    image_inputs_list.append(
+                        ego_dict['image_inputs'])  # different cav_num, ego_dict['image_inputs'] is dict.
+
                 record_len.append(ego_dict['cav_num'])
                 label_dict_list.append(ego_dict['label_dict'])
                 pairwise_t_matrix_list.append(ego_dict['pairwise_t_matrix'])
@@ -635,12 +633,12 @@ def getIntermediatemulticlassFusionDataset(cls):
                 if self.visualize:
                     origin_lidar.append(ego_dict['origin_lidar'])
                     lidar_len.append(ego_dict['lidar_len'])
-                    if len(ego_dict['img_front']) > 0 and len(ego_dict['img_right']) > 0 and len(ego_dict['img_left']) > 0 and len(ego_dict['BEV']) > 0:
+                    if len(ego_dict['img_front']) > 0 and len(ego_dict['img_right']) > 0 and len(
+                            ego_dict['img_left']) > 0 and len(ego_dict['BEV']) > 0:
                         img_front.append(ego_dict['img_front'][0])
                         img_left.append(ego_dict['img_left'][0])
                         img_right.append(ego_dict['img_right'][0])
                         BEV.append(ego_dict['BEV'][0])
-
 
                 if self.kd_flag:
                     teacher_processed_lidar_list.append(ego_dict['teacher_processed_lidar'])
@@ -673,7 +671,7 @@ def getIntermediatemulticlassFusionDataset(cls):
                 if self.heterogeneous:
                     lidar_agent = np.concatenate(lidar_agent_list)
                     lidar_agent_idx = lidar_agent.nonzero()[0].tolist()
-                    for k, v in merged_feature_dict.items(): # 'voxel_features' 'voxel_num_points' 'voxel_coords'
+                    for k, v in merged_feature_dict.items():  # 'voxel_features' 'voxel_num_points' 'voxel_coords'
                         merged_feature_dict[k] = [v[index] for index in lidar_agent_idx]
 
                 if not self.heterogeneous or (self.heterogeneous and sum(lidar_agent) != 0):
@@ -689,12 +687,12 @@ def getIntermediatemulticlassFusionDataset(cls):
                     camera_agent = 1 - lidar_agent
                     camera_agent_idx = camera_agent.nonzero()[0].tolist()
                     if sum(camera_agent) != 0:
-                        for k, v in merged_image_inputs_dict.items(): # 'imgs' 'rots' 'trans' ...
+                        for k, v in merged_image_inputs_dict.items():  # 'imgs' 'rots' 'trans' ...
                             merged_image_inputs_dict[k] = torch.stack([v[index] for index in camera_agent_idx])
-                            
+
                 if not self.heterogeneous or (self.heterogeneous and sum(camera_agent) != 0):
                     output_dict['ego'].update({'image_inputs': merged_image_inputs_dict})
-            
+
             record_len = torch.from_numpy(np.array(record_len, dtype=int))
             lidar_pose = torch.from_numpy(np.concatenate(lidar_pose_list, axis=0))
             lidar_pose_clean = torch.from_numpy(np.concatenate(lidar_pose_clean_list, axis=0))
@@ -714,20 +712,18 @@ def getIntermediatemulticlassFusionDataset(cls):
             # add pairwise_t_matrix to label dict
             label_torch_dict['pairwise_t_matrix'] = pairwise_t_matrix
             label_torch_dict['record_len'] = record_len
-            
 
             # object id is only used during inference, where batch size is 1.
             # so here we only get the first element.
             output_dict['ego'].update({'object_bbx_center': object_bbx_center,
-                                    'object_bbx_mask': object_bbx_mask,
-                                    'record_len': record_len,
-                                    'label_dict': label_torch_dict,
-                                    'object_ids': object_ids[0],
-                                    'pairwise_t_matrix': pairwise_t_matrix,
-                                    'lidar_pose_clean': lidar_pose_clean,
-                                    'lidar_pose': lidar_pose,
-                                    'anchor_box': self.anchor_box_torch})
-
+                                       'object_bbx_mask': object_bbx_mask,
+                                       'record_len': record_len,
+                                       'label_dict': label_torch_dict,
+                                       'object_ids': object_ids[0],
+                                       'pairwise_t_matrix': pairwise_t_matrix,
+                                       'lidar_pose_clean': lidar_pose_clean,
+                                       'lidar_pose': lidar_pose,
+                                       'anchor_box': self.anchor_box_torch})
 
             output_dict['ego'].update({'dict_list': dict_list})
 
@@ -744,32 +740,31 @@ def getIntermediatemulticlassFusionDataset(cls):
             if self.kd_flag:
                 teacher_processed_lidar_torch_dict = \
                     self.pre_processor.collate_batch(teacher_processed_lidar_list)
-                output_dict['ego'].update({'teacher_processed_lidar':teacher_processed_lidar_torch_dict})
-
+                output_dict['ego'].update({'teacher_processed_lidar': teacher_processed_lidar_torch_dict})
 
             if self.supervise_single and not online_eval_only:
                 output_dict['ego'].update({
-                    "label_dict_single":{
-                            # for centerpoint
-                            "object_bbx_center_single": torch.cat(object_bbx_center_single, dim=0),
-                            "object_bbx_mask_single": torch.cat(object_bbx_mask_single, dim=0)
-                        },
+                    "label_dict_single": {
+                        # for centerpoint
+                        "object_bbx_center_single": torch.cat(object_bbx_center_single, dim=0),
+                        "object_bbx_mask_single": torch.cat(object_bbx_mask_single, dim=0)
+                    },
                     "object_bbx_center_single": torch.cat(object_bbx_center_single, dim=0),
                     "object_bbx_mask_single": torch.cat(object_bbx_mask_single, dim=0)
                 })
 
             if self.heterogeneous:
                 output_dict['ego'].update({
-                    "lidar_agent_record": torch.from_numpy(np.concatenate(lidar_agent_list)) # [0,1,1,0,1...]
+                    "lidar_agent_record": torch.from_numpy(np.concatenate(lidar_agent_list))  # [0,1,1,0,1...]
                 })
 
             # TODO: LSS debug
-            det_data = torch.cat(det_data, dim=0)      
+            det_data = torch.cat(det_data, dim=0)
             detmap_pose = torch.cat(detmap_pose, dim=0)
             output_dict['ego'].update({'detmap_pose': detmap_pose})
 
             output_dict['ego']['label_dict'].update({
-                                    'det_data': det_data})
+                'det_data': det_data})
             return output_dict
 
         def collate_batch_test(self, batch, online_eval_only=False):
@@ -783,7 +778,7 @@ def getIntermediatemulticlassFusionDataset(cls):
             # check if anchor box in the batch
             if batch[0]['ego']['anchor_box'] is not None:
                 output_dict['ego'].update({'anchor_box':
-                    self.anchor_box_torch})
+                                               self.anchor_box_torch})
 
             # save the transformation matrix (4, 4) to ego vehicle
             # transformation is only used in post process (no use.)
@@ -794,9 +789,9 @@ def getIntermediatemulticlassFusionDataset(cls):
                 torch.from_numpy(np.identity(4)).float()
 
             output_dict['ego'].update({'transformation_matrix':
-                                        transformation_matrix_torch,
-                                        'transformation_matrix_clean':
-                                        transformation_matrix_clean_torch,})
+                                           transformation_matrix_torch,
+                                       'transformation_matrix_clean':
+                                           transformation_matrix_clean_torch, })
 
             output_dict['ego'].update({
                 "sample_idx": batch[0]['ego']['sample_idx'],
@@ -804,7 +799,6 @@ def getIntermediatemulticlassFusionDataset(cls):
             })
 
             return output_dict
-
 
         def post_process(self, data_dict, output_dict):
             """
@@ -833,60 +827,109 @@ def getIntermediatemulticlassFusionDataset(cls):
 
         def post_process_multiclass(self, data_dict, output_dict, online_eval_only=False):
             """
-            Process the outputs of the model to 2D/3D bounding box.
-
-            Parameters
-            ----------
-            data_dict : dict
-                The dictionary containing the origin input data of model.
-
-            output_dict :dict
-                The dictionary containing the output of the model.
-
-            Returns
-            -------
-            pred_box_tensor : torch.Tensor
-                The tensor of prediction bounding box after NMS.
-            gt_box_tensor : torch.Tensor
-                The tensor of gt bounding box.
+            Post-processing for multiclass.
+            Returns dictionaries for predictions and ground truth, indexed by class ID.
             """
+            # ================= [修复 1: 获取原始 GT Tensor] =================
+            raw_gt_tensor = data_dict['ego']['object_bbx_center']
 
-            if online_eval_only == False:
-                online_eval_only = self.online_eval_only
+            gt_boxes_dict = {}
+            pred_boxes_dict = {}
+            pred_scores_dict = {}
 
-            num_class = output_dict['ego']['cls_preds'].shape[1]
-            
+            data_dict_single = data_dict.copy()
+            output_dict_single = output_dict.copy()
 
-            pred_box_tensor_list = []
-            pred_score_list = []
-            gt_box_tensor_list = []
+            # ================= [关键修复 2: 锚框重排 (Anchor Permutation)] =================
+            # 必须保证 Anchors 的顺序是 [Class0_All, Class1_All, Class2_All]
+            # 才能匹配后处理器里的分段切片逻辑
+            if not hasattr(self.post_processor, 'anchors'):
+                import torch
+                import numpy as np
+                anchors_numpy = self.post_processor.generate_anchor_box()  # shape: (H, W, A, 7)
 
-            num_list = [0,1,3]
+                anchors_tensor = torch.from_numpy(anchors_numpy)
 
-            for i in range(num_class):
-                data_dict_single = copy.deepcopy(data_dict)
-                output_dict_single = copy.deepcopy(output_dict)
-                if not online_eval_only:
-                    data_dict_single['ego']['object_bbx_center'] = data_dict['ego']['object_bbx_center'][:,i,:,:]
-                    data_dict_single['ego']['object_bbx_mask'] = data_dict['ego']['object_bbx_mask'][:,i,:]
-                    data_dict_single['ego']['object_ids'] = data_dict['ego']['object_ids'][num_list[i]]
+                # 核心修正：
+                # 1. 把 Anchor 维度 (dim=2) 移到最前面 -> (A, H, W, 7)
+                # 2. 展平为 (-1, 7)
+                # 这样展平后的顺序就是: [A0的所有H*W], [A1的所有H*W], [A2的所有H*W]
+                anchors_tensor = anchors_tensor.permute(2, 0, 1, 3).contiguous().view(-1, 7)
 
-                output_dict_single['ego']['cls_preds'] = output_dict['ego']['cls_preds'][:,i:i+1,:,:]
-                output_dict_single['ego']['reg_preds'] = output_dict['ego']['reg_preds_multiclass'][:,i,:,:]
+                self.post_processor.anchors = anchors_tensor
 
-                pred_box_tensor, pred_score = \
-                    self.post_processor.post_process(data_dict_single, output_dict_single)
-                if not online_eval_only:
-                    gt_box_tensor = self.post_processor.generate_gt_bbx(data_dict_single)
+                if torch.cuda.is_available():
+                    self.post_processor.anchors = self.post_processor.anchors.cuda()
+            # ===========================================================================
+
+            anchor_num = self.params['postprocess']['anchor_args']['num']
+
+            # ================= [修复 3: 拆分 GT Tensor] =================
+            for i in range(anchor_num):
+                try:
+                    if len(raw_gt_tensor.shape) == 4:
+                        gt_boxes_dict[i] = raw_gt_tensor[:, i, :, :]
+                    elif len(raw_gt_tensor.shape) == 3:
+                        gt_boxes_dict[i] = raw_gt_tensor[i, :, :].unsqueeze(0)
+                    else:
+                        gt_boxes_dict[i] = raw_gt_tensor
+                except:
+                    gt_boxes_dict[i] = raw_gt_tensor
+
+            reg_preds_full = output_dict['ego']['reg_preds_multiclass']
+
+            # ================= [关键修复 4: 智能切片逻辑] =================
+            for i in range(anchor_num):
+                # 1. 分类图切片
+                output_dict_single['ego']['cls_preds'] = output_dict['ego']['cls_preds_multiclass'][:, i, :, :]
+
+                # 2. 回归图切片
+                if len(reg_preds_full.shape) == 5:
+                    output_dict_single['ego']['reg_preds'] = reg_preds_full[:, i, :, :, :]
+
+                elif len(reg_preds_full.shape) == 4:
+                    total_channels = reg_preds_full.shape[1]
+                    channels_per_anchor = total_channels // anchor_num
+                    start = i * channels_per_anchor
+                    end = (i + 1) * channels_per_anchor
+                    output_dict_single['ego']['reg_preds'] = reg_preds_full[:, start:end, :, :]
+
                 else:
-                    gt_box_tensor = None
+                    raise ValueError(f"Unexpected reg_preds shape: {reg_preds_full.shape}")
 
-                pred_box_tensor_list.append(pred_box_tensor)
-                pred_score_list.append(pred_score)
-                gt_box_tensor_list.append(gt_box_tensor)
+                # 3. 方向预测切片
+                if 'dir_preds_multiclass' in output_dict['ego']:
+                    dir_preds_full = output_dict['ego']['dir_preds_multiclass']
+                    if len(dir_preds_full.shape) == 5:
+                        output_dict_single['ego']['dir_preds'] = dir_preds_full[:, i, :, :, :]
+                    elif len(dir_preds_full.shape) == 4:
+                        total_dir = dir_preds_full.shape[1]
+                        dir_per_anchor = total_dir // anchor_num
+                        d_start = i * dir_per_anchor
+                        d_end = (i + 1) * dir_per_anchor
+                        output_dict_single['ego']['dir_preds'] = dir_preds_full[:, d_start:d_end, :, :]
 
-            return pred_box_tensor_list, pred_score_list, gt_box_tensor_list
+                output_dict_single['anchor_id'] = i
+
+                # 调用后处理
+                box_res = self.post_processor.post_process(data_dict_single, output_dict_single)
+
+                if isinstance(box_res, tuple):
+                    pred_box_single, pred_score_single = box_res
+                else:
+                    pred_box_single = box_res
+                    pred_score_single = None
+
+                if pred_box_single is not None:
+                    pred_boxes_dict[i] = pred_box_single
+                    if pred_score_single is not None:
+                        pred_scores_dict[i] = pred_score_single
+                    else:
+                        pred_scores_dict[i] = None
+                else:
+                    pred_boxes_dict[i] = None
+                    pred_scores_dict[i] = None
+
+            return pred_boxes_dict, pred_scores_dict, gt_boxes_dict
 
     return IntermediatemulticlassFusionDataset
-
-

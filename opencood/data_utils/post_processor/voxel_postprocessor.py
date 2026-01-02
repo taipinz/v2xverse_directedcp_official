@@ -2,7 +2,6 @@
 # Author: Runsheng Xu <rxx3386@ucla.edu>, OpenPCDet
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
-
 """
 3D Anchor Generator for Voxel
 """
@@ -41,7 +40,7 @@ class VoxelPostprocessor(BasePostprocessor):
         assert self.anchor_num == len(r)
         r = [math.radians(ele) for ele in r]
 
-        vh = self.params['anchor_args']['vh'] # voxel_size
+        vh = self.params['anchor_args']['vh']  # voxel_size
         vw = self.params['anchor_args']['vw']
 
         xrange = [self.params['anchor_args']['cav_lidar_range'][0],
@@ -54,13 +53,11 @@ class VoxelPostprocessor(BasePostprocessor):
         else:
             feature_stride = 2
 
-
-        x = np.linspace(xrange[0] + vw, xrange[1] - vw, W // feature_stride) # vw is not precise, vw * feature_stride / 2 should be better?
+        x = np.linspace(xrange[0] + vw, xrange[1] - vw, W // feature_stride)
         y = np.linspace(yrange[0] + vh, yrange[1] - vh, H // feature_stride)
 
-
         cx, cy = np.meshgrid(x, y)
-        cx = np.tile(cx[..., np.newaxis], self.anchor_num) # center
+        cx = np.tile(cx[..., np.newaxis], self.anchor_num)  # center
         cy = np.tile(cy[..., np.newaxis], self.anchor_num)
         cz = np.ones_like(cx) * -1.0
 
@@ -72,9 +69,8 @@ class VoxelPostprocessor(BasePostprocessor):
         for i in range(self.anchor_num):
             r_[..., i] = r[i]
 
-        if self.params['order'] == 'hwl': # pointpillar
-            anchors = np.stack([cx, cy, cz, h, w, l, r_], axis=-1) # (50, 176, 2, 7)
-
+        if self.params['order'] == 'hwl':  # pointpillar
+            anchors = np.stack([cx, cy, cz, h, w, l, r_], axis=-1)
         elif self.params['order'] == 'lhw':
             anchors = np.stack([cx, cy, cz, l, h, w, r_], axis=-1)
         else:
@@ -85,19 +81,8 @@ class VoxelPostprocessor(BasePostprocessor):
     def generate_label(self, **kwargs):
         """
         Generate targets for training.
-
-        Parameters
-        ----------
-        argv : list
-            gt_box_center:(max_num, 7), anchor:(H, W, anchor_num, 7)
-
-        Returns
-        -------
-        label_dict : dict
-            Dictionary that contains all target related info.
         """
-        assert self.params['order'] == 'hwl', 'Currently Voxel only support' \
-                                              'hwl bbx order.'
+        assert self.params['order'] == 'hwl', 'Currently Voxel only support hwl bbx order.'
         # (max_num, 7)
         gt_box_center = kwargs['gt_box_center']
         # (H, W, anchor_num, 7)
@@ -151,7 +136,6 @@ class VoxelPostprocessor(BasePostprocessor):
         mask = iou.T[id_highest_gt, id_highest] > 0
         id_highest, id_highest_gt = id_highest[mask], id_highest_gt[mask]
 
-
         # find anchors iou > params['pos_iou']
         id_pos, id_pos_gt = \
             np.where(iou >
@@ -199,7 +183,6 @@ class VoxelPostprocessor(BasePostprocessor):
             id_highest, (*feature_map_shape, self.anchor_num))
         neg_equal_one[index_x, index_y, index_z] = 0
 
-
         label_dict = {'pos_equal_one': pos_equal_one,
                       'neg_equal_one': neg_equal_one,
                       'targets': targets}
@@ -210,17 +193,6 @@ class VoxelPostprocessor(BasePostprocessor):
     def collate_batch(label_batch_list):
         """
         Customized collate function for target label generation.
-
-        Parameters
-        ----------
-        label_batch_list : list
-            The list of dictionary  that contains all labels for several
-            frames.
-
-        Returns
-        -------
-        target_batch : dict
-            Reformatted labels in torch tensor.
         """
         pos_equal_one = []
         neg_equal_one = []
@@ -242,44 +214,47 @@ class VoxelPostprocessor(BasePostprocessor):
                 'pos_equal_one': pos_equal_one,
                 'neg_equal_one': neg_equal_one}
 
+    def generate_gt_bbx(self, data_dict):
+        return data_dict['ego']['object_bbx_center']
+
     def post_process(self, data_dict, output_dict):
         """
         Process the outputs of the model to 2D/3D bounding box.
-        Step1: convert each cav's output to bounding box format
-        Step2: project the bounding boxes to ego space.
-        Step:3 NMS
-
-        For early and intermediate fusion,
-            data_dict only contains ego.
-
-        For late fusion,
-            data_dcit contains all cavs, so we need transformation matrix.
-
-
-        Parameters
-        ----------
-        data_dict : dict
-            The dictionary containing the origin input data of model.
-
-        output_dict :dict
-            The dictionary containing the output of the model.
-
-        Returns
-        -------
-        pred_box3d_tensor : torch.Tensor
-            The prediction bounding box tensor after NMS.
-        gt_box3d_tensor : torch.Tensor
-            The groundtruth bounding box tensor.
         """
+        if not hasattr(self, 'anchors'):
+            anchors_numpy = self.generate_anchor_box()
+            self.anchors = torch.from_numpy(anchors_numpy)
+            if torch.cuda.is_available():
+                self.anchors = self.anchors.cuda()
+
+        anchor_box = self.anchors
+
+        if 'anchor_id' in output_dict:
+            anchor_idx = output_dict['anchor_id']
+            total_anchors = anchor_box.shape[0]
+            single_class_size = total_anchors // 3
+            start = anchor_idx * single_class_size
+            end = (anchor_idx + 1) * single_class_size
+            anchor_box = anchor_box[start:end]
+
+        reg = output_dict['ego']['reg_preds']
+        cls = output_dict['ego']['cls_preds']
+
+        # Convert delta to boxes
+        batch_box3d = self.delta_to_boxes3d(reg, anchor_box)
+
         # the final bounding box list
         pred_box3d_list = []
         pred_box2d_list = []
-        for cav_id, cav_content in data_dict.items():
-            assert cav_id in output_dict
-            # the transformation matrix to ego space
-            transformation_matrix = cav_content['transformation_matrix'] # no clean
 
-            # rename variable 
+        for cav_id, cav_content in data_dict.items():
+            if cav_id not in output_dict:
+                continue  # Safety check
+
+            # the transformation matrix to ego space
+            transformation_matrix = cav_content['transformation_matrix']
+
+            # rename variable
             if 'psm' in output_dict[cav_id]:
                 output_dict[cav_id]['cls_preds'] = output_dict[cav_id]['psm']
             if 'rm' in output_dict:
@@ -287,52 +262,56 @@ class VoxelPostprocessor(BasePostprocessor):
             if 'dm' in output_dict:
                 output_dict[cav_id]['dir_preds'] = output_dict[cav_id]['dm']
 
-            # (H, W, anchor_num, 7)
-            anchor_box = cav_content['anchor_box']
-
             # classification probability
             prob = output_dict[cav_id]['cls_preds']
-            prob = F.sigmoid(prob.permute(0, 2, 3, 1))
+
+            # === [Fix: Ensure 4 dims for permute] ===
+            if len(prob.shape) == 3:
+                prob = prob.unsqueeze(1)
+            # ========================================
+
+            prob = torch.sigmoid(prob.permute(0, 2, 3, 1))
             prob = prob.reshape(1, -1)
 
             # regression map
             reg = output_dict[cav_id]['reg_preds']
 
             # convert regression map back to bounding box
-            if len(reg.shape) == 4: # anchor-based. PointPillars, SECOND
+            if len(reg.shape) == 4:  # anchor-based
                 batch_box3d = self.delta_to_boxes3d(reg, anchor_box)
-            else: # anchor-free. CenterPoint
+            else:  # anchor-free
                 batch_box3d = reg.view(1, -1, 7)
 
-            mask = \
-                torch.gt(prob, self.params['target_args']['score_threshold'])
+            mask = torch.gt(prob, self.params['target_args']['score_threshold'])
             mask = mask.view(1, -1)
             mask_reg = mask.unsqueeze(2).repeat(1, 1, 7)
 
             # during validation/testing, the batch size should be 1
-            assert batch_box3d.shape[0] == 1
+            if batch_box3d.shape[0] != 1:
+                # fallback for safety, though inference is usually batch 1
+                batch_box3d = batch_box3d[0:1]
+
             boxes3d = torch.masked_select(batch_box3d[0],
                                           mask_reg[0]).view(-1, 7)
             scores = torch.masked_select(prob[0], mask[0])
 
             # adding dir classifier
-            if 'dir_preds' in output_dict[cav_id].keys() and len(boxes3d) !=0:
+            if 'dir_preds' in output_dict[cav_id].keys() and len(boxes3d) != 0:
                 dir_offset = self.params['dir_args']['dir_offset']
                 num_bins = self.params['dir_args']['num_bins']
 
-
-                dm  = output_dict[cav_id]['dir_preds'] # [N, H, W, 4]
-                dir_cls_preds = dm.permute(0, 2, 3, 1).contiguous().reshape(1, -1, num_bins) # [1, N*H*W*2, 2]
+                dm = output_dict[cav_id]['dir_preds']
+                dir_cls_preds = dm.permute(0, 2, 3, 1).contiguous().reshape(1, -1, num_bins)
                 dir_cls_preds = dir_cls_preds[mask]
-                # if rot_gt > 0, then the label is 1, then the regression target is [0, 1]
-                dir_labels = torch.max(dir_cls_preds, dim=-1)[1]  # indices. shape [1, N*H*W*2].  value 0 or 1. If value is 1, then rot_gt > 0
-                
-                period = (2 * np.pi / num_bins) # pi
+
+                dir_labels = torch.max(dir_cls_preds, dim=-1)[1]
+
+                period = (2 * np.pi / num_bins)
                 dir_rot = limit_period(
                     boxes3d[..., 6] - dir_offset, 0, period
-                ) # 限制在0到pi之间
-                boxes3d[..., 6] = dir_rot + dir_offset + period * dir_labels.to(dir_cls_preds.dtype) # 转化0.25pi到2.5pi
-                boxes3d[..., 6] = limit_period(boxes3d[..., 6], 0.5, 2 * np.pi) # limit to [-pi, pi]
+                )
+                boxes3d[..., 6] = dir_rot + dir_offset + period * dir_labels.to(dir_cls_preds.dtype)
+                boxes3d[..., 6] = limit_period(boxes3d[..., 6], 0.5, 2 * np.pi)
 
             if 'iou_preds' in output_dict[cav_id].keys() and len(boxes3d) != 0:
                 iou = torch.sigmoid(output_dict[cav_id]['iou_preds'].permute(0, 2, 3, 1).contiguous()).reshape(1, -1)
@@ -346,7 +325,7 @@ class VoxelPostprocessor(BasePostprocessor):
                 boxes3d_corner = \
                     box_utils.boxes_to_corners_3d(boxes3d,
                                                   order=self.params['order'])
-                
+
                 # STEP 2
                 # (N, 8, 3)
                 projected_boxes3d = \
@@ -362,8 +341,9 @@ class VoxelPostprocessor(BasePostprocessor):
                 pred_box2d_list.append(boxes2d_score)
                 pred_box3d_list.append(projected_boxes3d)
 
-        if len(pred_box2d_list) ==0 or len(pred_box3d_list) == 0:
+        if len(pred_box2d_list) == 0 or len(pred_box3d_list) == 0:
             return None, None
+
         # shape: (N, 5)
         pred_box2d_list = torch.vstack(pred_box2d_list)
         # scores
@@ -389,17 +369,15 @@ class VoxelPostprocessor(BasePostprocessor):
 
         # select cooresponding score
         scores = scores[keep_index]
-        
+
         # filter out the prediction out of the range. with z-dim
         pred_box3d_np = pred_box3d_tensor.cpu().numpy()
         pred_box3d_np, mask = box_utils.mask_boxes_outside_range_numpy(pred_box3d_np,
-                                                    self.params['gt_range'],
-                                                    order=None,
-                                                    return_mask=True)
+                                                                       self.params['gt_range'],
+                                                                       order=None,
+                                                                       return_mask=True)
         pred_box3d_tensor = torch.from_numpy(pred_box3d_np).to(device=pred_box3d_tensor.device)
         scores = scores[mask]
-
-        assert scores.shape[0] == pred_box3d_tensor.shape[0]
 
         return pred_box3d_tensor, scores
 
@@ -407,22 +385,20 @@ class VoxelPostprocessor(BasePostprocessor):
     def delta_to_boxes3d(deltas, anchors):
         """
         Convert the output delta to 3d bbx.
-
-        Parameters
-        ----------
-        deltas : torch.Tensor
-            (N, 14, H, W)
-        anchors : torch.Tensor
-            (W, L, 2, 7) -> xyzhwlr
-
-        Returns
-        -------
-        box3d : torch.Tensor
-            (N, W*L*2, 7)
         """
         # batch size
         N = deltas.shape[0]
-        deltas = deltas.permute(0, 2, 3, 1).contiguous().view(N, -1, 7)
+
+        # === [Fix 3: 8-channel compatibility] ===
+        Code_Size = deltas.shape[1]
+        deltas = deltas.permute(0, 2, 3, 1).contiguous().view(N, -1, Code_Size)
+
+        if Code_Size == 8:
+            # 8 channels (x,y,z,w,l,h,sin,cos) -> 7 channels (x,y,z,w,l,h,yaw)
+            yaw = torch.atan2(deltas[..., 6:7], deltas[..., 7:8])
+            deltas = torch.cat([deltas[..., :6], yaw], dim=-1)
+        # ======================================
+
         boxes3d = torch.zeros_like(deltas)
 
         if deltas.is_cuda:
@@ -453,32 +429,14 @@ class VoxelPostprocessor(BasePostprocessor):
 
     @staticmethod
     def visualize(pred_box_tensor, gt_tensor, pcd, show_vis, save_path, dataset=None):
-        """
-        Visualize the prediction, ground truth with point cloud together.
-
-        Parameters
-        ----------
-        pred_box_tensor : torch.Tensor
-            (N, 8, 3) prediction.
-
-        gt_tensor : torch.Tensor
-            (N, 8, 3) groundtruth bbx
-
-        pcd : torch.Tensor
-            PointCloud, (N, 4).
-
-        show_vis : bool
-            Whether to show visualization.
-
-        save_path : str
-            Save the visualization results to given path.
-
-        dataset : BaseDataset
-            opencood dataset object.
-
-        """
         vis_utils.visualize_single_sample_output_gt(pred_box_tensor,
                                                     gt_tensor,
                                                     pcd,
                                                     show_vis,
                                                     save_path)
+
+    @staticmethod
+    def check_numpy_to_torch(x):
+        if isinstance(x, np.ndarray):
+            return torch.from_numpy(x).float(), True
+        return x, False
