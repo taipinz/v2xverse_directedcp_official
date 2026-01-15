@@ -8,7 +8,7 @@ data:
   training:
     dataset:
       type: "CarlaMVDatasetEnd2End"
-      root: '/media/tsinghua3090/66c73fca-acad-4d88-a5b9-47aa246d1d02/dataset/dataset_v2xverse'
+      root: 'external_paths/data_root/'
       towns: [1,2,3,4,6]
       weathers: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
       input_frame: *INPUT_FRAME
@@ -27,7 +27,7 @@ data:
   validation:
     dataset:
       type: "CarlaMVDatasetEnd2End"
-      root: '/media/tsinghua3090/66c73fca-acad-4d88-a5b9-47aa246d1d02/dataset/dataset_v2xverse'
+      root: 'external_paths/data_root/'
       towns: [7, 8, 10]
       weathers: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
       input_frame: *INPUT_FRAME
@@ -46,7 +46,7 @@ data:
   test:
     dataset:
       type: "CarlaMVDatasetEnd2End"
-      root: '/media/tsinghua3090/66c73fca-acad-4d88-a5b9-47aa246d1d02/dataset/dataset_v2xverse'
+      root: 'external_paths/data_root/'
       towns: [5]
       weathers: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
       input_frame: *INPUT_FRAME
@@ -64,7 +64,7 @@ data:
   test_comm_thre:
     dataset:
       type: "CarlaMVDatasetWithGTInput"
-      root: '/media/tsinghua3090/66c73fca-acad-4d88-a5b9-47aa246d1d02/dataset/dataset_v2xverse'
+      root: '/external_paths/data_root/'
       towns: [5]
       weathers: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
       input_frame: *INPUT_FRAME
@@ -100,7 +100,7 @@ test_metric:
   type: "ADE_FDE"
 
 training:
-  epochs: &EPOCHS 2
+  epochs: &EPOCHS 50
   log_interval: 10
   optimizer:
     type: "AdamW"
