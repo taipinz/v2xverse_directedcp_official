@@ -8,7 +8,6 @@ from opencood.models.sub_modules.base_bev_backbone import BaseBEVBackbone
 from opencood.models.sub_modules.base_bev_backbone_resnet import ResNetBEVBackbone
 from opencood.models.sub_modules.downsample_conv import DownsampleConv
 from opencood.models.sub_modules.naive_compress import NaiveCompressor
-from opencood.models.sub_modules.dcn_net import DCNNet
 from opencood.models.fuse_modules.codriving_attn import CoDriving
 
 # [新增] 引入 Directed-CP 模块
@@ -55,6 +54,13 @@ class centerpointcodriving(nn.Module):
         self.dcn = False
         if 'dcn' in args:
             self.dcn = True
+            try:
+                from opencood.models.sub_modules.dcn_net import DCNNet
+            except ModuleNotFoundError as e:
+                raise ModuleNotFoundError(
+                    "DCN is enabled in config but mmcv is not installed. "
+                    "Either install mmcv-full or remove the 'dcn' section from the config."
+                ) from e
             self.dcn_net = DCNNet(args['dcn'])
 
         # [关键新增] Directed-CP 初始化
