@@ -144,7 +144,7 @@ model:
       stride: [1]
 
 loss:
-  core_method: center_point_loss_multiclass
+  core_method: direction_weighted_point_pillar_loss
   args:
     cls_weight: 20.0
     code_weights: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 20.0, 20.0]
@@ -157,6 +157,11 @@ loss:
       min_radius: 2
       out_size_factor: 2
       voxel_size: *voxel_size
+    dir:
+      mode: 'N'
+      weight: [0.9, 0.9, 0.1, 0.1]
+      dsigma: 1.0
+      th: 0.1
 
 optimizer:
   args:
