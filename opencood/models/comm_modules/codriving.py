@@ -16,7 +16,24 @@ class Communication(nn.Module):
         super(Communication, self).__init__()
         
         self.smooth = False
-        self.thre = args['thre']
+        self.thre = args.get('thre', 0.01)
+        # Round-specific thresholds (fallback if auto target rate is not set)
+        self.thre_round1 = args.get('thre_round1', self.thre)
+        self.thre_round2 = args.get('thre_round2', self.thre)
+        # Auto threshold based on target communication rate
+        self.target_rate_round1 = args.get('target_rate_round1', None)
+        self.target_rate_round2 = args.get('target_rate_round2', None)
+        self.min_target_rate = args.get('min_target_rate', 0.02)
+        self.max_target_rate = args.get('max_target_rate', 0.6)
+        self.min_thre = args.get('min_thre', 1e-4)
+        self.max_thre = args.get('max_thre', 1.0)
+        # Optional: force full communication for round1
+        self.full_comm_round1 = args.get('full_comm_round1', False)
+        # Request map parameters
+        self.radius = args.get('radius', 160)
+        self.sigma_reverse = args.get('sigma_reverse', 2)
+        self.radius_round2 = args.get('radius_round2', self.radius)
+        self.sigma_reverse_round2 = args.get('sigma_reverse_round2', self.sigma_reverse)
         if 'gaussian_smooth' in args:
             # Gaussian Smooth
             self.smooth = True
@@ -25,8 +42,8 @@ class Communication(nn.Module):
             self.gaussian_filter = nn.Conv2d(1, 1, kernel_size=kernel_size, stride=1, padding=(kernel_size-1)//2)
             self.init_gaussian_filter(kernel_size, c_sigma)
             self.gaussian_filter.requires_grad = False
-        self.det_range = args['cav_lidar_range']
-        self.use_driving_request = args['driving_request']
+        self.det_range = args.get('cav_lidar_range', args.get('lidar_range', None))
+        self.use_driving_request = args.get('driving_request', False)
 
         self.args = args
         
@@ -40,6 +57,34 @@ class Communication(nn.Module):
         self.gaussian_filter.weight.data = torch.Tensor(gaussian_kernel).to(self.gaussian_filter.weight.device).unsqueeze(0).unsqueeze(0)
         self.gaussian_filter.bias.data.zero_()
 
+    def _auto_threshold(self, communication_maps, record_len, target_rate):
+        """
+        Compute an adaptive threshold to keep approximately target_rate of cells.
+        communication_maps: (N, 1, H, W)
+        """
+        if target_rate is None:
+            return None
+        rate = float(target_rate)
+        rate = max(self.min_target_rate, min(self.max_target_rate, rate))
+        # Use non-ego agents if possible
+        N = int(record_len)
+        if N > 1:
+            maps_for_thre = communication_maps[1:N]
+        else:
+            maps_for_thre = communication_maps[:1]
+        vals = maps_for_thre.reshape(-1)
+        if vals.numel() == 0:
+            return None
+        q = 1.0 - rate
+        q = max(0.0, min(1.0, q))
+        if hasattr(torch, 'quantile'):
+            thre = torch.quantile(vals, q).item()
+        else:
+            k = max(1, int(q * (vals.numel() - 1)) + 1)
+            thre = torch.kthvalue(vals, k).values.item()
+        thre = max(self.min_thre, min(self.max_thre, float(thre)))
+        return thre
+
     def forward(self, batch_confidence_maps, record_len, pairwise_t_matrix, waypoints=None):
         # batch_confidence_maps:[(L1, H, W), (L2, H, W), ...]
         # pairwise_t_matrix: (B,L,L,2,3)
@@ -47,6 +92,7 @@ class Communication(nn.Module):
         # a_ji = (1 - q_i)*q_ji
         B, L, _, _, _ = pairwise_t_matrix.shape
         _, _, H, W = batch_confidence_maps[0].shape
+        is_round2 = waypoints is not None
         
         ### get matrix for inverse transform
         pairwise_t_matrix_inverse = pairwise_t_matrix.clone()
@@ -87,10 +133,14 @@ class Communication(nn.Module):
 
             ########## driving request ############
             if waypoints is not None: # only used with waypoints prediction model
+                if self.det_range is None:
+                    raise ValueError("cav_lidar_range/lidar_range is required for driving request map.")
                 # assert B==1 # waypoints.size(0)==len(record_len)
 
                 # radius=40  sigma_reverse=5
-                bev_grad_cam = waypoints2map_radius( waypoints.cpu().numpy(), radius=self.args.get('radius',160), sigma_reverse=self.args.get('sigma_reverse',2), \
+                bev_grad_cam = waypoints2map_radius( waypoints.cpu().numpy(),
+                                                    radius=self.radius_round2,
+                                                    sigma_reverse=self.sigma_reverse_round2, \
                                                     grid_coord=[batch_confidence_maps[b].size(2),batch_confidence_maps[b].size(3), \
                                                                 self.det_range[4]/(self.det_range[4]-self.det_range[1]),\
                                                                 self.det_range[3]/(self.det_range[3]-self.det_range[0])] \
@@ -114,15 +164,22 @@ class Communication(nn.Module):
             ones_mask = torch.ones_like(communication_maps).to(communication_maps.device)
             zeros_mask = torch.zeros_like(communication_maps).to(communication_maps.device)
 
-            if self.args.get('random_thre',False):
+            if self.full_comm_round1 and not is_round2:
+                communication_mask = ones_mask
+            elif (self.target_rate_round2 if is_round2 else self.target_rate_round1) is not None:
+                target_rate = self.target_rate_round2 if is_round2 else self.target_rate_round1
+                thre = self._auto_threshold(communication_maps, record_len[b], target_rate)
+                if thre is None:
+                    thre = self.thre_round2 if is_round2 else self.thre_round1
+                communication_mask = torch.where(communication_maps >= thre, ones_mask, zeros_mask)
+            elif self.args.get('random_thre',False):
                 thre_list = [0.001,0.003,0.01,0.02,0.1]
                 thre = random.choice(thre_list)
                 thre = np.random.uniform(0.5*thre, 1.5*thre)
+                communication_mask = torch.where(communication_maps >= thre, ones_mask, zeros_mask)
             else:
-                thre = self.thre
-
-
-            communication_mask = torch.where(communication_maps>= thre, ones_mask, zeros_mask)
+                thre = self.thre_round2 if is_round2 else self.thre_round1
+                communication_mask = torch.where(communication_maps >= thre, ones_mask, zeros_mask)
 
             communication_rate = communication_mask[1:N].sum()/(H*W)
 
