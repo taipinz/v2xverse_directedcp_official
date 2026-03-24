@@ -7,8 +7,19 @@ import re
 import yaml
 import os
 import math
+from pathlib import Path
 
 import numpy as np
+
+
+def _resolve_external_path_value(value, repo_root):
+    if isinstance(value, str) and value.startswith('external_paths/'):
+        return str((repo_root / value).resolve(strict=False))
+    if isinstance(value, list):
+        return [_resolve_external_path_value(item, repo_root) for item in value]
+    if isinstance(value, dict):
+        return {key: _resolve_external_path_value(val, repo_root) for key, val in value.items()}
+    return value
 
 
 def load_yaml(file, opt=None):
@@ -43,6 +54,8 @@ def load_yaml(file, opt=None):
         |\\.(?:nan|NaN|NAN))$''', re.X),
         list(u'-+0123456789.'))
     param = yaml.load(stream, Loader=loader)
+    repo_root = Path(__file__).resolve().parents[2]
+    param = _resolve_external_path_value(param, repo_root)
     if "yaml_parser" in param:
         param = eval(param["yaml_parser"])(param)
 
