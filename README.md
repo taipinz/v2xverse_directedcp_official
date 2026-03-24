@@ -261,6 +261,11 @@ For evaluation on one route, following these steps:
 # Open one Carla server
 CUDA_VISIBLE_DEVICES=0 ./external_paths/carla_root/CarlaUE4.sh --world-port=${Carla_port} -prefer-nvidia
 
+# Optional: verify or override the Python interpreter used by closed-loop evaluation.
+python scripts/check_closed_loop_env.py
+# or
+export V2XVERSE_PYTHON=$HOME/.local/share/mamba/envs/v2xverse/bin/python
+
 # Evaluation on one route
 CUDA_VISIBLE_DEVICES=0 bash scripts/eval_driving_e2e.sh ${Route_id} ${Carla_port} ${Method_tag} ${Repeat_id} ${Agent_config} ${Scenario_config}
 
