@@ -263,28 +263,66 @@ class centerpointcodriving(nn.Module):
         cls = self.cls_head(fused_feature)
         bbox = self.reg_head(fused_feature)
 
-        # (这里是原有的 box 生成代码，保持不变即可，为了节省篇幅，省略部分重复代码，请保留原文件中的 generate_predicted_boxes 及后续处理)
-        # ... [请保留你原文件这里到 return output_dict 的所有代码] ...
-
-        # 以下是占位符，请确保保留了原有的后处理代码
         box_preds_for_infer = bbox.permute(0, 2, 3, 1).contiguous()
-        # ... 省略中间解码过程 ...
-        # 注意：这里需要你复制原文件中从 box_preds_for_infer 开始直到 return 的代码
+        bbox_temp_list = []
+        num_class = int(box_preds_for_infer.shape[3] / 8)
+        box_preds_for_infer = box_preds_for_infer.view(box_preds_for_infer.shape[0],
+                                                       box_preds_for_infer.shape[1],
+                                                       box_preds_for_infer.shape[2],
+                                                       num_class,
+                                                       8)
+        for i in range(num_class):
+            box_preds_for_infer_singleclass = box_preds_for_infer[:, :, :, i, :]
+            box_preds_for_infer_singleclass = box_preds_for_infer_singleclass.permute(0, 3, 1, 2)
+            _, bbox_temp = self.generate_predicted_boxes(cls[:, i, :, :],
+                                                         box_preds_for_infer_singleclass)
+            bbox_temp_list.append(bbox_temp)
+        bbox_temp_list = torch.stack(bbox_temp_list, dim=1)
 
-        # 简单起见，我把 output_dict 的构造补全，防止你复制漏了：
-        # (请将原代码中 generate_predicted_boxes 和 output_dict 构造部分完整粘回这里)
-        # 为确保运行，我写一个简化的返回（你需要用原代码替换这部分）：
         _, bbox_temp = self.generate_predicted_boxes(cls, bbox)
-        output_dict = {'cls_preds': cls, 'reg_preds': bbox_temp, 'bbox_preds': bbox,
-                       'psm': cls, 'rm': bbox}
+
+        output_dict = {'cls_preds': cls,
+                       'reg_preds': bbox_temp,
+                       'reg_preds_multiclass': bbox_temp_list,
+                       'bbox_preds': bbox}
         result_dict.update({'fused_feature': fused_feature})
         output_dict.update(result_dict)
-        # 单车结果更新...
+
         _, bbox_temp_single = self.generate_predicted_boxes(psm_single, rm_single)
         output_dict.update({'cls_preds_single': psm_single,
+                            'reg_preds_single': bbox_temp_single,
                             'bbox_preds_single': rm_single,
-                            'psm_single': psm_single,
-                            'rm_single': rm_single})
+                            'comm_rate': communication_rates})
+
+        psm_single_regroup = self.regroup(psm_single, record_len)
+        rm_single_regroup = self.regroup(rm_single, record_len)
+        psm_single_ego_list = []
+        rm_single_ego_list = []
+        for b in range(len(record_len)):
+            psm_single_ego_list.append(psm_single_regroup[b][0:1])
+            rm_single_ego_list.append(rm_single_regroup[b][0:1])
+        psm_single_ego = torch.cat(psm_single_ego_list, dim=0)
+        rm_single_ego = torch.cat(rm_single_ego_list, dim=0)
+
+        box_preds_for_infer = rm_single_ego.permute(0, 2, 3, 1).contiguous()
+        bbox_temp_list_single = []
+        num_class = int(box_preds_for_infer.shape[3] / 8)
+        box_preds_for_infer = box_preds_for_infer.view(box_preds_for_infer.shape[0],
+                                                       box_preds_for_infer.shape[1],
+                                                       box_preds_for_infer.shape[2],
+                                                       num_class,
+                                                       8)
+        for i in range(num_class):
+            box_preds_for_infer_singleclass = box_preds_for_infer[:, :, :, i, :]
+            box_preds_for_infer_singleclass = box_preds_for_infer_singleclass.permute(0, 3, 1, 2)
+            _, bbox_temp = self.generate_predicted_boxes(psm_single_ego[:, i, :, :],
+                                                         box_preds_for_infer_singleclass)
+            bbox_temp_list_single.append(bbox_temp)
+        bbox_temp_list_single = torch.stack(bbox_temp_list_single, dim=1)
+
+        output_dict.update({'cls_preds_single_ego': psm_single_ego,
+                            'reg_preds_multiclass_single_ego': bbox_temp_list_single,
+                            'bbox_preds_single_ego': rm_single_ego})
 
         return output_dict
 

@@ -1,7 +1,7 @@
 name: v2xverse_codriving_ms_atten_multiclass
-root_dir: '/media/tsinghua3090/66c73fca-acad-4d88-a5b9-47aa246d1d02/dataset/dataset_v2xverse'
-validate_dir: '/media/tsinghua3090/66c73fca-acad-4d88-a5b9-47aa246d1d02/dataset/dataset_v2xverse'
-test_dir: '/media/tsinghua3090/66c73fca-acad-4d88-a5b9-47aa246d1d02/dataset/dataset_v2xverse'
+root_dir: external_paths/data_root
+validate_dir: external_paths/data_root
+test_dir: external_paths/data_root
 
 yaml_parser: load_point_pillar_params
 
