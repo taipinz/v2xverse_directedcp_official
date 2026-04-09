@@ -6,7 +6,7 @@ test_dir: external_paths/data_root
 yaml_parser: load_point_pillar_params
 
 train_params:
-  batch_size: 4
+  batch_size: 2
   epoches: 40
   eval_freq: 1
   max_cav: 5
@@ -53,8 +53,8 @@ postprocess:
     feature_stride: 2
     h: 1.56
     l: 3.9
-    num: 3
-    r: &anchor_yaw [0,0,0]
+    num: 1
+    r: &anchor_yaw [0]
     vd: 36
     vh: 0.125
     vw: 0.125
@@ -83,7 +83,7 @@ model:
     directed_cp_args:
       # 通信预算 (Budget): 0.2 表示只保留 20% 的特征块进行传输
       # 调试建议：如果担心代码报错，可以先设为 1.0 (全量)，跑通后再改为 0.2
-      comm_budget: 0.2
+      comm_budget: 0.8
 
       # RSU 方向注意力 (DAS) 参数
       # sigma1: 相对重要性阈值 (越低越灵敏)
@@ -121,8 +121,8 @@ model:
         driving_request: true
         cav_lidar_range: *lidar_range
         # Auto-select thresholds by target communication rate
-        target_rate_round1: 0.35
-        target_rate_round2: 0.12
+        target_rate_round1: 0.70
+        target_rate_round2: 0.70
         min_thre: 0.001
         max_thre: 0.2
         # Fallback fixed thresholds (used if target_rate_* is not set)
@@ -131,7 +131,7 @@ model:
         thre_round2: 0.03
         # Request-map radius for round2 (smaller => narrower focus)
         radius: 160
-        radius_round2: 80
+        radius_round2: 160
         sigma_reverse: 2
         sigma_reverse_round2: 2
         full_comm_round1: false

@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-
 from opencood.models.sub_modules.pillar_vfe import PillarVFE
 from opencood.models.sub_modules.point_pillar_scatter import PointPillarScatter
 from opencood.models.sub_modules.base_bev_backbone import BaseBEVBackbone
@@ -13,6 +12,9 @@ from opencood.models.fuse_modules.codriving_attn import CoDriving
 
 # [新增] 引入 Directed-CP 模块
 from opencood.models.comm_modules.directed_cp_modules import QCNet, RSUDirectionAttentionScore
+
+
+from opencood.utils.waypoint2map import waypoints2map_radius
 
 
 class centerpointcodriving(nn.Module):
@@ -52,6 +54,13 @@ class centerpointcodriving(nn.Module):
         self.dcn = False
         if 'dcn' in args:
             self.dcn = True
+            try:
+                from opencood.models.sub_modules.dcn_net import DCNNet
+            except ModuleNotFoundError as e:
+                raise ModuleNotFoundError(
+                    "DCN is enabled in config but mmcv is not installed. "
+                    "Either install mmcv-full or remove the 'dcn' section from the config."
+                ) from e
             self.dcn_net = DCNNet(args['dcn'])
 
         # [关键新增] Directed-CP 初始化
@@ -66,6 +75,10 @@ class centerpointcodriving(nn.Module):
             # Feature Map 尺寸通常是 100x252
             self.qc_net = QCNet(input_dim=self.out_channel, hidden_dim=cp_args.get('hidden_dim', 64))
             self.comm_budget = cp_args.get('comm_budget', 0.2)
+
+            # [新增] 从配置中读取半径和高斯方差，如果没有则使用默认值
+            self.req_radius = cp_args.get('request_radius', 160)
+            self.req_sigma = cp_args.get('sigma_reverse', 2)
         else:
             print(">>> Directed-CP Module Disabled <<<")
 
@@ -108,6 +121,31 @@ class centerpointcodriving(nn.Module):
         split_x = torch.tensor_split(x, cum_sum_len[:-1].cpu())
         return split_x
 
+    def generate_request_map(self, waypoints, H, W):
+        """
+        根据规划的 waypoints 生成驾驶需求热力图 (Request Map)
+        """
+        if waypoints is None:
+            return None
+
+        # 计算网格分辨率参数: [H, W, res_x, res_y]
+        range_x = self.cav_lidar_range[3] - self.cav_lidar_range[0]
+        range_y = self.cav_lidar_range[4] - self.cav_lidar_range[1]
+
+        # 计算每个像素代表的物理尺寸倒数
+        res_x = W / range_x
+        res_y = H / range_y
+
+        # [修改] 使用 self.req_radius 和 self.req_sigma 替代硬编码
+        request_map = waypoints2map_radius(
+            waypoints.detach().cpu().numpy(),
+            radius=self.req_radius,  # 这里改为 self变量
+            sigma_reverse=self.req_sigma,  # 这里改为 self变量
+            grid_coord=[H, W, res_x, res_y],
+            det_range=self.cav_lidar_range
+        )
+        return request_map
+
     def forward(self, data_dict, waypoints=None):
         voxel_features = data_dict['processed_lidar']['voxel_features']
         voxel_coords = data_dict['processed_lidar']['voxel_coords']
@@ -136,41 +174,65 @@ class centerpointcodriving(nn.Module):
         rm_single = self.reg_head(spatial_features_2d)
 
         # =======================================================
-        # [关键新增] Directed-CP 核心逻辑
+        # [修改后的] Directed-CP 核心逻辑
         # =======================================================
+        directed_cp_mask = None
         if self.use_directed_cp:
-            # 1. 计算 Mask
+            # 1. 获取基础感知置信度 (Perception Confidence)
             conf_map = psm_single.sigmoid().max(dim=1)[0]
             _, _, H, W = spatial_features_2d.shape
+
+            # 2. [新增] 获取规划需求图 (Planning Request)
+            # 这一步将 waypoints 转化为与特征图对齐的热力图
+            req_map_np = None
+            if waypoints is not None:
+                req_map_np = self.generate_request_map(waypoints, H, W)
+
             mask_list = []
             start_idx = 0
 
-            for b_idx, cav_num in enumerate(record_len):
+            for b_idx, cav_num in enumerate(record_len.tolist()):
                 if cav_num > 0:
-                    ego_conf = conf_map[start_idx].detach().cpu().numpy()
-                    _, das_mask_val = self.rsu_das.compute_das_from_feature_map(ego_conf)
+                    # A. 提取当前车辆的感知置信度 (CPU numpy)
+                    ego_conf = conf_map[start_idx].detach().cpu().numpy()  # Shape: (H, W)
+
+                    # B. [关键] 融合规划信息
+                    guidance_map = ego_conf
+
+                    if req_map_np is not None:
+                        # 获取当前 batch 对应的 request map
+                        ego_req = req_map_np[b_idx]  # Shape: (H, W)
+
+                        # [融合策略]: 加权融合
+                        # alpha=0.6: 感知权重 (确保已看到的物体不丢失)
+                        # beta=0.4:  规划权重 (确保规划路径上的区域被保留)
+                        alpha = 0.6
+                        beta = 0.4
+                        guidance_map = alpha * ego_conf + beta * ego_req
+                        guidance_map = np.clip(guidance_map, 0.0, 1.0)
+                        # 可选: 归一化以保持数值稳定性
+                        # guidance_map = np.clip(guidance_map, 0, 1)
+
+                    # C. 将融合后的 guidance_map 传给 DAS 计算方向分
+                    # 原代码传的是纯感知 ego_conf，现在传的是融合了规划的 map
+                    _, das_mask_val = self.rsu_das.compute_das_from_feature_map(guidance_map)
+
+                    # D. 生成空间 Mask
                     spatial_mask = self.rsu_das.create_spatial_direction_mask(H, W, das_mask_val)
                     mask_t = torch.from_numpy(spatial_mask).to(spatial_features_2d.device).float()
                     mask_t = mask_t.unsqueeze(0).unsqueeze(0)
                     mask_list.append(mask_t.repeat(cav_num, 1, 1, 1))
+
                 start_idx += cav_num
 
             if mask_list:
                 dir_mask = torch.cat(mask_list, dim=0)
                 # 2. Pose Embedding (0填充)
                 pose_emb = torch.zeros_like(spatial_features_2d)
-                # 3. QCNet
+                # 3. QCNet 计算稀疏 Mask
                 sparse_mask = self.qc_net(spatial_features_2d, pose_emb, dir_mask, budget=self.comm_budget)
-                # 4. 应用到 spatial_features_2d
-                spatial_features_2d = spatial_features_2d * sparse_mask
-
-                # 5. 应用到 Multi-scale features (如果有)
-                if self.multi_scale and 'spatial_features' in batch_dict:
-                    features_ms = batch_dict['spatial_features']
-                    if isinstance(features_ms, list):
-                        for i in range(len(features_ms)):
-                            mask_resized = F.interpolate(sparse_mask, size=features_ms[i].shape[-2:], mode='nearest')
-                            features_ms[i] = features_ms[i] * mask_resized
+                # 4. Directed-CP 输出转为单通道 mask，交给通信模块统一裁剪
+                directed_cp_mask = sparse_mask.mean(dim=1, keepdim=True)
         # =======================================================
 
         if self.multi_scale:
@@ -179,7 +241,8 @@ class centerpointcodriving(nn.Module):
                                                                               record_len,
                                                                               pairwise_t_matrix,
                                                                               self.backbone,
-                                                                              waypoints)
+                                                                              waypoints,
+                                                                              directed_cp_mask=directed_cp_mask)
             if self.shrink_flag:
                 fused_feature = self.shrink_conv(fused_feature)
         elif self.early_flag:
@@ -194,29 +257,72 @@ class centerpointcodriving(nn.Module):
             fused_feature, communication_rates, result_dict = self.fusion_net(spatial_features_2d,
                                                                               psm_single,
                                                                               record_len,
-                                                                              pairwise_t_matrix)
+                                                                              pairwise_t_matrix,
+                                                                              directed_cp_mask=directed_cp_mask)
 
         cls = self.cls_head(fused_feature)
         bbox = self.reg_head(fused_feature)
 
-        # (这里是原有的 box 生成代码，保持不变即可，为了节省篇幅，省略部分重复代码，请保留原文件中的 generate_predicted_boxes 及后续处理)
-        # ... [请保留你原文件这里到 return output_dict 的所有代码] ...
-
-        # 以下是占位符，请确保保留了原有的后处理代码
         box_preds_for_infer = bbox.permute(0, 2, 3, 1).contiguous()
-        # ... 省略中间解码过程 ...
-        # 注意：这里需要你复制原文件中从 box_preds_for_infer 开始直到 return 的代码
+        bbox_temp_list = []
+        num_class = int(box_preds_for_infer.shape[3] / 8)
+        box_preds_for_infer = box_preds_for_infer.view(box_preds_for_infer.shape[0],
+                                                       box_preds_for_infer.shape[1],
+                                                       box_preds_for_infer.shape[2],
+                                                       num_class,
+                                                       8)
+        for i in range(num_class):
+            box_preds_for_infer_singleclass = box_preds_for_infer[:, :, :, i, :]
+            box_preds_for_infer_singleclass = box_preds_for_infer_singleclass.permute(0, 3, 1, 2)
+            _, bbox_temp = self.generate_predicted_boxes(cls[:, i, :, :],
+                                                         box_preds_for_infer_singleclass)
+            bbox_temp_list.append(bbox_temp)
+        bbox_temp_list = torch.stack(bbox_temp_list, dim=1)
 
-        # 简单起见，我把 output_dict 的构造补全，防止你复制漏了：
-        # (请将原代码中 generate_predicted_boxes 和 output_dict 构造部分完整粘回这里)
-        # 为确保运行，我写一个简化的返回（你需要用原代码替换这部分）：
         _, bbox_temp = self.generate_predicted_boxes(cls, bbox)
-        output_dict = {'cls_preds': cls, 'reg_preds': bbox_temp, 'bbox_preds': bbox}
+
+        output_dict = {'cls_preds': cls,
+                       'reg_preds': bbox_temp,
+                       'reg_preds_multiclass': bbox_temp_list,
+                       'bbox_preds': bbox}
         result_dict.update({'fused_feature': fused_feature})
         output_dict.update(result_dict)
-        # 单车结果更新...
+
         _, bbox_temp_single = self.generate_predicted_boxes(psm_single, rm_single)
-        output_dict.update({'cls_preds_single': psm_single, 'bbox_preds_single': rm_single})
+        output_dict.update({'cls_preds_single': psm_single,
+                            'reg_preds_single': bbox_temp_single,
+                            'bbox_preds_single': rm_single,
+                            'comm_rate': communication_rates})
+
+        psm_single_regroup = self.regroup(psm_single, record_len)
+        rm_single_regroup = self.regroup(rm_single, record_len)
+        psm_single_ego_list = []
+        rm_single_ego_list = []
+        for b in range(len(record_len)):
+            psm_single_ego_list.append(psm_single_regroup[b][0:1])
+            rm_single_ego_list.append(rm_single_regroup[b][0:1])
+        psm_single_ego = torch.cat(psm_single_ego_list, dim=0)
+        rm_single_ego = torch.cat(rm_single_ego_list, dim=0)
+
+        box_preds_for_infer = rm_single_ego.permute(0, 2, 3, 1).contiguous()
+        bbox_temp_list_single = []
+        num_class = int(box_preds_for_infer.shape[3] / 8)
+        box_preds_for_infer = box_preds_for_infer.view(box_preds_for_infer.shape[0],
+                                                       box_preds_for_infer.shape[1],
+                                                       box_preds_for_infer.shape[2],
+                                                       num_class,
+                                                       8)
+        for i in range(num_class):
+            box_preds_for_infer_singleclass = box_preds_for_infer[:, :, :, i, :]
+            box_preds_for_infer_singleclass = box_preds_for_infer_singleclass.permute(0, 3, 1, 2)
+            _, bbox_temp = self.generate_predicted_boxes(psm_single_ego[:, i, :, :],
+                                                         box_preds_for_infer_singleclass)
+            bbox_temp_list_single.append(bbox_temp)
+        bbox_temp_list_single = torch.stack(bbox_temp_list_single, dim=1)
+
+        output_dict.update({'cls_preds_single_ego': psm_single_ego,
+                            'reg_preds_multiclass_single_ego': bbox_temp_list_single,
+                            'bbox_preds_single_ego': rm_single_ego})
 
         return output_dict
 

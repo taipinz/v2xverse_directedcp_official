@@ -8,9 +8,8 @@ data:
   training:
     dataset:
       type: "CarlaMVDatasetEnd2End"
-      #root: 'external_paths/data_root/'
-      root: '/home/frankwang122222/V2Xverse/V2Xverse/dataset/dataset_v2xverse/'
-      towns: [1]
+      root: 'external_paths/data_root/'
+      towns: [1,2,3,4,6]
       weathers: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
       input_frame: *INPUT_FRAME
       output_points: *OUTPUT_POINTS
@@ -28,9 +27,8 @@ data:
   validation:
     dataset:
       type: "CarlaMVDatasetEnd2End"
-      #root: 'external_paths/data_root/'
-      root: '/home/frankwang122222/V2Xverse/V2Xverse/dataset/dataset_v2xverse/'
-      towns: [1]
+      root: 'external_paths/data_root/'
+      towns: [7, 8, 10]
       weathers: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
       input_frame: *INPUT_FRAME
       output_points: *OUTPUT_POINTS
@@ -48,9 +46,8 @@ data:
   test:
     dataset:
       type: "CarlaMVDatasetEnd2End"
-      #root: 'external_paths/data_root/'
-      root: '/home/frankwang122222/V2Xverse/V2Xverse/dataset/dataset_v2xverse/'
-      towns: [1]
+      root: 'external_paths/data_root/'
+      towns: [5]
       weathers: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
       input_frame: *INPUT_FRAME
       output_points: *OUTPUT_POINTS
@@ -67,9 +64,8 @@ data:
   test_comm_thre:
     dataset:
       type: "CarlaMVDatasetWithGTInput"
-      #root: '/external_paths/data_root/'
-      root: '/home/frankwang122222/V2Xverse/V2Xverse/dataset/dataset_v2xverse/'
-      towns: [1]
+      root: 'external_paths/data_root/'
+      towns: [5]
       weathers: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
       input_frame: *INPUT_FRAME
       output_points: *OUTPUT_POINTS

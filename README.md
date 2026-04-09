@@ -1,330 +1,474 @@
-# Towards Collaborative Autonomous Driving: Simulation Platform and End-to-End System (TPAMI2025)
+# V2Xverse-DirectedCP: Communication-Efficient Collaborative Autonomous Driving
 
-[Paper](https://arxiv.org/pdf/2404.09496) | [Project page](https://collaborativeperception.github.io/V2Xverse/)
+[Original V2Xverse Paper](https://arxiv.org/pdf/2404.09496) | [Original Project Page](https://collaborativeperception.github.io/V2Xverse/)
 
-This repository contains the official PyTorch implementation of paper "Towards Collaborative Autonomous Driving: Simulation Platform and End-to-End System".
+This repository is a research fork of **V2Xverse** for LiDAR-based collaborative autonomous driving in CARLA. It keeps the original end-to-end pipeline for **3D object detection**, **waypoints prediction**, and **closed-loop driving**, and adds a communication-aware collaborative perception stack centered on:
+
+- **Directed-CP style sparse communication**
+- **planning-aware request maps** derived from waypoints
+- **adaptive communication thresholds** controlled by target communication rate
+- **direction-weighted detection loss** for communication-sensitive regions
+- **portable repo-relative path management** via `external_paths/...`
+- **closed-loop environment validation** before CARLA evaluation
 
 ![V2X autonomous driving](simulation/demo/demo.gif)
 
-## Features
-Open source:
-- [x] Dataset
-- [x] Checkpoints
+## Highlights
 
+- **Enhanced CoDriving perception model** in `opencood/models/center_point_codriving.py`
+  - integrates direction-aware sparse masking before feature fusion
+  - supports planning-guided request maps to bias communication toward route-relevant regions
+  - forwards `directed_cp_mask` into the fusion module so communication masks and feature masks stay consistent
+- **Adaptive communication control** in `opencood/models/comm_modules/codriving.py`
+  - supports round-specific thresholds
+  - supports target-rate-based automatic threshold selection
+  - supports different request-map radii between perception-only and planning-aware rounds
+- **Direction-weighted multiclass loss** in `opencood/loss/direction_weighted_point_pillar_loss.py`
+  - extends CenterPoint-style multiclass supervision
+  - reweights loss across directional quadrants for communication-oriented training
+- **Portable configuration paths**
+  - YAML fields starting with `external_paths/` are resolved automatically by both OpenCOOD and planning config loaders
+  - this removes hard-coded absolute dataset paths from the default configs
+- **Safer closed-loop evaluation workflow**
+  - `scripts/check_closed_loop_env.py` validates Python, CARLA egg compatibility, and required dependencies
+  - `scripts/eval_driving_e2e.sh` auto-selects a compatible Python interpreter and matching CARLA egg
 
-Support the developing of our CoDriving system in three tasks:
-- [x] Closed-loop driving
-- [x] 3D object detection
-- [x] Waypoints prediction
+## Supported Capabilities
 
-Support the deployments of SOTA end-to-end autonomous driving methods in Carla-based benchmark:
-- [ ] [WOR [ICCV 2021]](https://openaccess.thecvf.com/content/ICCV2021/papers/Chen_Learning_To_Drive_From_a_World_on_Rails_ICCV_2021_paper.pdf)
-- [ ] [Transfuser [CVPR 2021]](https://openaccess.thecvf.com/content/CVPR2021/papers/Prakash_Multi-Modal_Fusion_Transformer_for_End-to-End_Autonomous_Driving_CVPR_2021_paper.pdf)
-- [ ] [LAV [CVPR 2022]](https://openaccess.thecvf.com/content/CVPR2022/papers/Chen_Learning_From_All_Vehicles_CVPR_2022_paper.pdf)
-- [ ] [TCP [NIPS 2022]](https://arxiv.org/pdf/2206.08129)
-- [ ] [Interfuser [CoRL 2022]](https://arxiv.org/pdf/2207.14024)
-
-Support the complete developing pipeline (training + offline evaluation + closed-loop driving evaluation) of multiple collaborative perception methods:
-- [x] Late fusion
-- [x] Early fusion
-- [x] [F-Cooper [SEC2019]](https://arxiv.org/abs/1909.06459)
-- [x] [V2VNet [ECCV2022]](https://arxiv.org/abs/2008.07519)
-- [ ] [DiscoNet [NeurIPS2022]](https://arxiv.org/abs/2111.00643)
-- [x] [V2X-ViT [ECCV2022]](https://github.com/DerrickXuNu/v2x-vit)
-- [ ] [HEAL [ICLR2024]](https://openreview.net/forum?id=KkrDUGIASk)
-
-Modality:
-- [x] Lidar
-- [ ] Camera (coming soon)
-
-
+- **Tasks**
+  - closed-loop collaborative driving
+  - LiDAR-based 3D object detection
+  - waypoints prediction
+- **Collaborative perception methods**
+  - enhanced `codriving`
+  - `early`
+  - `late`
+  - `fcooper`
+  - `v2xvit`
+  - `v2vnet` perception config
+  - `single` no-collaboration baseline
+- **Modality**
+  - LiDAR
 
 ## Contents
-1. [Installation](#introduction)
-2. [Dataset](#dataset)
-3. [Training](#train)
-4. [Closed loop evaluation](#closed-loop)
-5. [Modular evaluation](#modular)
-6. [Shutdown simulation](#Shutdown)
-7. [Todo](#Todo)
-8. [Acknowledgements](#Acknowledgements)
 
-## <span id="introduction"> Installation
+1. [Installation](#installation)
+2. [Data Preparation](#data-preparation)
+3. [Perception Training and Inference](#perception-training-and-inference)
+4. [Planning Training and Evaluation](#planning-training-and-evaluation)
+5. [Closed-Loop Evaluation](#closed-loop-evaluation)
+6. [Checkpoints](#checkpoints)
+7. [Troubleshooting](#troubleshooting)
+8. [Acknowledgements](#acknowledgements)
+9. [Citation](#citation)
 
+## Installation
 
-### Step 1: Basic Installation
-Get code and create pytorch environment.
-```Shell
-git clone https://github.com/CollaborativePerception/V2Xverse.git
+### 1. Create the environment
+
+```bash
+git clone https://github.com/taipinz/v2xverse_directedcp_official.git
+cd v2xverse_directedcp_official
+export REPO_ROOT=$PWD
+
 conda create --name v2xverse python=3.7 cmake=3.22.1
 conda activate v2xverse
+
 conda install pytorch==1.10.1 torchvision==0.11.2 torchaudio==0.10.1 cudatoolkit=11.3 -c pytorch -c conda-forge
 conda install cudnn -c conda-forge
 
-cd V2Xverse
 pip install -r opencood/requirements.txt
 pip install -r simulation/requirements.txt
+pip install -r requirements.txt
 ```
 
-### Step 2: Download and setup CARLA 0.9.10.1.
-```Shell
+Notes:
+
+- Closed-loop CARLA evaluation is still tied to the **CARLA 0.9.10.1 Python 3.7 egg**.
+- `simulation/requirements.txt` pins `setuptools==41.2.0` because `easy_install` is required for the CARLA egg.
+
+### 2. Download and set up CARLA 0.9.10.1
+
+```bash
 chmod +x simulation/setup_carla.sh
 ./simulation/setup_carla.sh
-easy_install carla/PythonAPI/carla/dist/carla-0.9.10-py3.7-linux-x86_64.egg
-mkdir external_paths
-ln -s ${PWD}/carla/ external_paths/carla_root
-# If you already have a Carla, just create a soft link to external_paths/carla_root
-```
-Note: we choose the setuptools==41 to install because this version has the feature `easy_install`. After installing the carla.egg you can install the lastest setuptools to avoid No module named distutils_hack.
 
-Fix random seed in CARLA: add the following contents in carla_root/CarlaUE4/Config/DefaultGameUserSettings.ini.
+easy_install carla/PythonAPI/carla/dist/carla-0.9.10-py3.7-linux-x86_64.egg
+
+mkdir -p external_paths
+ln -sfn ${PWD}/carla external_paths/carla_root
 ```
+
+If you already have a CARLA installation, link it directly:
+
+```bash
+mkdir -p external_paths
+ln -sfn /path/to/carla external_paths/carla_root
+```
+
+To make CARLA deterministic, add the following to `external_paths/carla_root/CarlaUE4/Config/DefaultGameUserSettings.ini`:
+
+```ini
 [CARLA/ServerRandomSeed]
 Seed = 1234
 ```
 
-### Step 3: Install Spconv (1.2.1)
-We use spconv 1.2.1 to generate voxel features in perception module.
+### 3. Install `spconv==1.2.1`
 
-To install spconv 1.2.1, please follow the guide in https://github.com/traveller59/spconv/tree/v1.2.1.
+This project uses `spconv 1.2.1` for voxel feature generation in the perception module.
 
-### Step 4: Set up opencood
-```Shell
-# Set up
+Please follow the upstream installation guide:
+
+https://github.com/traveller59/spconv/tree/v1.2.1
+
+### 4. Set up OpenCOOD
+
+```bash
 python setup.py develop
-
-# Bbx IOU cuda version compile
-python opencood/utils/setup.py build_ext --inplace 
+python opencood/utils/setup.py build_ext --inplace
 ```
 
-### Step 5: Install pypcd
-```Shell
-# go to another folder
+### 5. Install `pypcd`
+
+```bash
 cd ..
 git clone https://github.com/klintan/pypcd.git
 cd pypcd
 pip install python-lzf
 python setup.py install
-cd ..
+cd ${REPO_ROOT}
 ```
 
-### Step 6: Install EfficinetNet(required by camera detector Lift-Splat-Shoot)
-```Shell
+### 6. Optional camera dependency
+
+If you plan to use camera-related components such as Lift-Splat-Shoot:
+
+```bash
 pip install efficientnet_pytorch==0.7.0
 ```
 
-## <span id="dataset"> Dataset
-There are two ways to obtain dataset, you can generate a dataset by youself or download one from [huggingface](https://huggingface.co/datasets/gjliu/V2Xverse), you may download dataset at the root directory of this repository.
+## Data Preparation
 
-Here are the steps to generate a dataset, where we employ a strong privileged rule-based expert agent as supervisor.
+You can either:
 
-```Shell
-# Generate a dataset in parallel
+- generate the dataset with the built-in CARLA pipeline, or
+- download the original V2Xverse dataset from [Hugging Face](https://huggingface.co/datasets/gjliu/V2Xverse)
 
-cd V2Xverse
-# Initialize dataset directory
-python ./simulation/data_collection/init_dir.py --dataset_dir  ./dataset
+This fork expects dataset and CARLA paths to be exposed through `external_paths/`, and the YAML loaders will automatically resolve those paths.
 
-# Generate scripts for every routes
-python ./simulation/data_collection/generate_scripts.py
+### Link the dataset root
 
-# Link dataset directory, if you initialized dataset in other directory, replace ./dataset with your dataset directory
-ln -s ${PWD}/dataset/ ./external_paths/data_root
+```bash
+mkdir -p external_paths
+ln -sfn /path/to/dataset_v2xverse external_paths/data_root
+```
 
-# Open Carla server (15 parallel process in total)
+### Generate a dataset
+
+```bash
+cd /path/to/v2xverse_directedcp_official
+
+python simulation/data_collection/init_dir.py --dataset_dir ./dataset
+python simulation/data_collection/generate_scripts.py
+
+ln -sfn ${PWD}/dataset external_paths/data_root
+
 CUDA_VISIBLE_DEVICES=0 ./external_paths/carla_root/CarlaUE4.sh --world-port=40000 -prefer-nvidia
 CUDA_VISIBLE_DEVICES=1 ./external_paths/carla_root/CarlaUE4.sh --world-port=40002 -prefer-nvidia
 CUDA_VISIBLE_DEVICES=2 ./external_paths/carla_root/CarlaUE4.sh --world-port=40004 -prefer-nvidia
 ...
 CUDA_VISIBLE_DEVICES=7 ./external_paths/carla_root/CarlaUE4.sh --world-port=40028 -prefer-nvidia
 
-# Execute data generation in parallel
 bash simulation/data_collection/generate_v2xverse_all.sh
 ```
 
-Generate data on one single route.
-```Shell
-# Open one Carla server
+Generate one route only:
+
+```bash
 CUDA_VISIBLE_DEVICES=0 ./external_paths/carla_root/CarlaUE4.sh --world-port=40000 -prefer-nvidia
-
-# Execute data generation for route 0 in town01
-bash ./simulation/data_collection/scripts/weather-0/routes_town01_0.sh
-```
-Tips: set usable --world-port and adjust ${PORT} in /simulation/data_collection/scripts/weather-0/routes_townXX_X.sh accordingly. Otherwise, the python programme might stuck.
-
-The files in dataset should follow this structure:
-```Shell
-|--weather-0
-    |--data
-        |--routes_town{town_id}_{route_id}_w{weather_id}_{datetime}
-            |--ego_vehicle_{vehicle_id}
-                |--2d_bbs_{direction}
-                |--3d_bbs
-                |--actors_data
-                |--affordances
-                |--bev_visibility
-                |--birdview
-                |--depth_{direction}
-                |--env_actors_data
-                |--lidar
-                |--lidar_semantic_front
-                |--measurements
-                |--rgb_{direction}
-                |--seg_{direction}
-                |--topdown
-            |--rsu_{vehicle_id}
-            |--log
-    |--results
-...
-|--weather-13
+bash simulation/data_collection/scripts/weather-0/routes_town01_0.sh
 ```
 
-Once a new dataset is generated in `./dataset`, generate a index file with:
-```Shell
+After generating new data, build the dataset index:
+
+```bash
 python simulation/data_collection/gen_index.py
 ```
-This will result in `dataset/dataset_index.txt`, from which we retrieval dataset sub-directory in training and testing.
 
-## <span id="train"> Training
+The generated index will be saved as `dataset/dataset_index.txt`.
 
-### Perception module
-We use yaml files to configure parameters to train perception module. See `opencood/hypes_yaml/v2xverse/` for examples.
+### Dataset structure
 
-To train perception module from scratch or a continued checkpoint, run the following commonds:
-```Shell
-python opencood/tools/train.py -y ${CONFIG_FILE} [--model_dir ${CHECKPOINT_FOLDER}]
+```text
+weather-0/
+  data/
+    routes_town{town_id}_{route_id}_w{weather_id}_{datetime}/
+      ego_vehicle_{vehicle_id}/
+        2d_bbs_{direction}/
+        3d_bbs/
+        actors_data/
+        affordances/
+        bev_visibility/
+        birdview/
+        depth_{direction}/
+        env_actors_data/
+        lidar/
+        lidar_semantic_front/
+        measurements/
+        rgb_{direction}/
+        seg_{direction}/
+        topdown/
+      rsu_{vehicle_id}/
+      log/
+  results/
+...
+weather-13/
 ```
-Arguments Explanation:
-- `-y`: the path of the training configuration file, e.g. `opencood/hypes_yaml/v2xverse/codriving_multiclass_config.yaml`, meaning you want to train the perception module of our codriving system. Using `opencood/hypes_yaml/v2xverse/fcooper_multiclass_config.yaml` means you want to train the fcooper perception model.
-- `model_dir` (optional) : the path of the checkpoints. This is used to fine-tune or continue-training. When the `model_dir` is
-given, the trainer will discard the `hypes_yaml` and load the `config.yaml` in the checkpoint folder. In this case, ${CONFIG_FILE} can be `None`,
 
-Train the perception module in DDP:
-```Shell
-CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch  --nproc_per_node=2 --use_env opencood/tools/train_ddp.py -y ${CONFIG_FILE} [--model_dir ${CHECKPOINT_FOLDER}]
+## Perception Training and Inference
+
+The main perception configs for this fork are:
+
+- `opencood/hypes_yaml/v2xverse/codriving_multiclass_config.yaml`
+  - default Directed-CP-enabled CoDriving config
+- `opencood/hypes_yaml/v2xverse/codriving_multiclass_config_train.yaml`
+  - training-oriented setting with higher communication budget / target rate
+- `opencood/hypes_yaml/v2xverse/codriving_multiclass_config_comm.yaml`
+  - communication-constrained setting for low-bandwidth experiments
+
+Key additions inside these configs:
+
+- `use_directed_cp: true`
+- `directed_cp_args.comm_budget`
+- round-specific communication thresholds or target rates
+- planning-aware request-map parameters such as `radius_round2`
+- `direction_weighted_point_pillar_loss`
+
+### Train perception
+
+Single GPU:
+
+```bash
+python opencood/tools/train.py -y opencood/hypes_yaml/v2xverse/codriving_multiclass_config_train.yaml
 ```
-`--nproc_per_node` indicate the GPU number you will use.
 
-Test the perception module:
-```Shell
+Resume from a checkpoint:
+
+```bash
+python opencood/tools/train.py -y opencood/hypes_yaml/v2xverse/codriving_multiclass_config_train.yaml --model_dir ${CHECKPOINT_FOLDER}
+```
+
+DDP:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --use_env opencood/tools/train_ddp.py -y opencood/hypes_yaml/v2xverse/codriving_multiclass_config_train.yaml
+```
+
+### Inference
+
+Standard evaluation:
+
+```bash
 python opencood/tools/inference_multiclass.py --model_dir ${CHECKPOINT_FOLDER}
 ```
 
-Test the perception module in latency setting:
-```Shell
+Latency setting:
+
+```bash
 python opencood/tools/inference_multiclass_latency.py --model_dir ${CHECKPOINT_FOLDER}
 ```
 
-Test the perception module in pose error setting:
-```Shell
+Pose-noise setting:
+
+```bash
 python opencood/tools/inference_multiclass_w_noise.py --model_dir ${CHECKPOINT_FOLDER}
 ```
 
+## Planning Training and Evaluation
 
-### Planning module
-Given a checkpoint of perception module, we freeze its parameters and train the down-stream planning module ([MotionNet](https://arxiv.org/abs/2003.06754) as backbone) in an end-to-end paradigm. The planner gets BEV perception feature and occupancy map as input and targets to predict the future waypoints of ego vehicle.
+The planning stack is trained end-to-end on top of a frozen perception checkpoint. In this fork, the default planning config `codriving/hypes_yaml/codriving/end2end_codriving.yaml` now:
 
-Train the planning module with a given perception checkpoint:
-```Shell
-bash scripts/train_planner_e2e.sh ${CUDA_VISIBLE_DEVICES} ${NUM_GPUS} ${perception_model_dir} ${collaboration_method} ${planner_resume}
-```
-Arguments Explanation:
-- `CUDA_VISIBLE_DEVICES`: ids of GPUs to be used.
-- `NUM_GPUS`: number of GPUs to be used.
-- `perception_model_dir` : the path of the folder that contains perception checkpoint.
-- `collaboration_method` : we now support codriving/early/late/single/fcooper/v2xvit. Make sure to be consistent with the method used in `perception_model_dir`. You can adjust the corresponding configuration file in `codriving/hypes_yaml/codriving/end2end_${collaboration_method}.yaml`.
-- `planner_resume` (optional): the checkpoint path for planner to resume.
+- uses `external_paths/data_root/` instead of hard-coded absolute dataset paths
+- uses a broader town split
+  - train: `1, 2, 3, 4, 6`
+  - validation: `7, 8, 10`
+  - test: `5`
 
-Test the entire driving system (perception+planning) in waypoints prediction task with ADE and FDE:
-```Shell
-bash scripts/eval_planner_e2e.sh  ${CUDA_VISIBLE_DEVICES} ${perception_model_dir} ${collaboration_method} ${planner_resume}
-```
-This evaluation measures the ability of driving system to clone the behaviors of expert agent.
+### Train the planner
 
-Test the waypoints prediction task in latency setting:
-```Shell
-bash scripts/eval_planner_e2e_latency.sh  ${CUDA_VISIBLE_DEVICES} ${perception_model_dir} ${collaboration_method} ${planner_resume}
+```bash
+bash scripts/train_planner_e2e.sh ${CUDA_VISIBLE_DEVICES} ${NUM_GPUS} ${PERCEPTION_MODEL_DIR} ${COLLAB_METHOD} ${PLANNER_RESUME}
 ```
 
-Test the waypoints prediction task in pose error setting:
-```Shell
-bash scripts/eval_planner_e2e_w_noise.sh  ${CUDA_VISIBLE_DEVICES} ${perception_model_dir} ${collaboration_method} ${planner_resume}
+Arguments:
+
+- `CUDA_VISIBLE_DEVICES`: GPU ids, for example `0` or `0,1`
+- `NUM_GPUS`: number of processes for distributed training
+- `PERCEPTION_MODEL_DIR`: folder containing the perception checkpoint and config
+- `COLLAB_METHOD`: one of `codriving`, `early`, `late`, `single`, `fcooper`, `v2xvit`
+- `PLANNER_RESUME`: optional planner checkpoint for resuming training
+
+### Evaluate waypoint prediction
+
+```bash
+bash scripts/eval_planner_e2e.sh ${CUDA_VISIBLE_DEVICES} ${PERCEPTION_MODEL_DIR} ${COLLAB_METHOD} ${PLANNER_CKPT}
 ```
 
-## <span id="closed-loop"> Closed-loop evaluation
-- For collaborative autonomous driving, you can set up your collaborative agents with perception and planning module, and run them in V2Xverse simulation!
-- For single-agent driving, we provide the deployment of SOTA end-to-end AD methods in V2Xverse.(coming soon)
+Latency evaluation:
 
-Your can customize closed-loop evaluation with specific agents and scenarios.
-For evaluation on one route, following these steps:
-```Shell
-# Open one Carla server
-CUDA_VISIBLE_DEVICES=0 ./external_paths/carla_root/CarlaUE4.sh --world-port=${Carla_port} -prefer-nvidia
-
-# Evaluation on one route
-CUDA_VISIBLE_DEVICES=0 bash scripts/eval_driving_e2e.sh ${Route_id} ${Carla_port} ${Method_tag} ${Repeat_id} ${Agent_config} ${Scenario_config}
-
-# Evaluation on all routes (split into 5 subsets)
-bash scripts/batch_eval_driving_e2e.sh ${cuda_device} ${Carla_port} ${Method_tag} ${Repeat_id} ${Agent_config} 1s
-bash scripts/batch_eval_driving_e2e.sh ${cuda_device} ${Carla_port} ${Method_tag} ${Repeat_id} ${Agent_config} 2s
-bash scripts/batch_eval_driving_e2e.sh ${cuda_device} ${Carla_port} ${Method_tag} ${Repeat_id} ${Agent_config} 3s
-bash scripts/batch_eval_driving_e2e.sh ${cuda_device} ${Carla_port} ${Method_tag} ${Repeat_id} ${Agent_config} 4s
-bash scripts/batch_eval_driving_e2e.sh ${cuda_device} ${Carla_port} ${Method_tag} ${Repeat_id} ${Agent_config} 5s
-
-```
-Arguments Explanation:
-- `Route_id`: the id of test route, corresponding to the route file `simulation/leaderboard/data/evaluation_routes/town05_short_r${route_id}.xml`. The route is defined through a sequence of waypoints in Carla town.
-- `Carla_port`: the port used for python programme to communicate with Carla simulation. Make sure to be consistent with the argument `--world-port` when opening Carla server.
-- `Method_tag & Repeat_id`: personalized tags for the method and this time of running, e.g. Method_tag: codriving & Repeat_id:0.
-- `Agent_config`: configuration of agent, corresponding to the file `simulation/leaderboard/team_code/agent_config/pnp_config_${Agent_config}.yaml`. This file contains important features for autonomous agent, from model to PID control. Custumize your own agent by editting this file and set the inside parameters `perception_model_dir` and `planner_model_checkpoint` and `planner_config` with your own path, see an example `simulation/leaderboard/team_code/agent_config/example_config.yaml`.
-- `Scenario_config`: configuration of scenario, corresponding to the file `simulation/leaderboard/leaderboard/scenarios/scenario_parameter_${Scenario_config}.yaml`. We provide five configuration files in advance.
-
-
-## <span id="Checkpoints"> Checkpoints
-Your can download the checkpoints from [codriving models on huggingface](https://huggingface.co/gjliu/v2xverse) and put each folder in `./checkpoints`, for example:
-
-```Shell
-|--checkpoints
-    |--codriving
-        |--perception
-        |--planning
+```bash
+bash scripts/eval_planner_e2e_latency.sh ${CUDA_VISIBLE_DEVICES} ${PERCEPTION_MODEL_DIR} ${COLLAB_METHOD} ${PLANNER_CKPT}
 ```
 
-## <span id="Shutdown"> Shut down simulation on Linux
-Carla processes may fail to stop，please kill them in time.
+Pose-noise evaluation:
 
-Display your processes
-~~~
-ps U usrname | grep PROCESS_NAME(eg. python，carla)
-~~~
-Kill process
-~~~
-kill -9 PID
-~~~
-Kill all carla-related processes
-~~~
-ps -def |grep 'carla' |cut -c 9-15| xargs kill -9
-pkill -u username -f carla
-~~~
+```bash
+bash scripts/eval_planner_e2e_w_noise.sh ${CUDA_VISIBLE_DEVICES} ${PERCEPTION_MODEL_DIR} ${COLLAB_METHOD} ${PLANNER_CKPT}
+```
 
-## <span id="Todo"> Todo
-- [x] Data generation
-- [x] Training
-- [x] Closed-loop evaluation
-- [x] Modular evaluation
-- [x] Dataset and checkpoint release
+## Closed-Loop Evaluation
 
+This fork adds an explicit environment validator for closed-loop runs. Use it before launching CARLA evaluation.
 
-## <span id="Acknowledgements"> Acknowledgements
+### 1. Check the runtime environment
+
+```bash
+python scripts/check_closed_loop_env.py
+```
+
+If your default `python` is not the CARLA-compatible interpreter, override it:
+
+```bash
+export V2XVERSE_PYTHON=$HOME/.local/share/mamba/envs/v2xverse/bin/python
+```
+
+`scripts/eval_driving_e2e.sh` will automatically:
+
+- validate the environment
+- select a usable Python interpreter
+- locate the CARLA egg matching the active Python version
+
+### 2. Launch CARLA
+
+```bash
+CUDA_VISIBLE_DEVICES=0 ./external_paths/carla_root/CarlaUE4.sh --world-port=${CARLA_PORT} -prefer-nvidia
+```
+
+### 3. Evaluate a single route
+
+```bash
+bash scripts/eval_driving_e2e.sh ${ROUTE_ID} ${CARLA_PORT} ${METHOD_TAG} ${REPEAT_ID} ${AGENT_CONFIG} ${SCENARIO_CONFIG}
+```
+
+Example:
+
+```bash
+bash scripts/eval_driving_e2e.sh 0 40000 codriving 0 codriving_5_10 _1
+```
+
+### 4. Evaluate the full benchmark split
+
+The provided batch script partitions the routes into five subsets:
+
+```bash
+bash scripts/batch_eval_driving_e2e.sh ${CUDA_DEVICE} ${CARLA_PORT} ${METHOD_TAG} ${REPEAT_ID} ${AGENT_CONFIG} 1s
+bash scripts/batch_eval_driving_e2e.sh ${CUDA_DEVICE} ${CARLA_PORT} ${METHOD_TAG} ${REPEAT_ID} ${AGENT_CONFIG} 2s
+bash scripts/batch_eval_driving_e2e.sh ${CUDA_DEVICE} ${CARLA_PORT} ${METHOD_TAG} ${REPEAT_ID} ${AGENT_CONFIG} 3s
+bash scripts/batch_eval_driving_e2e.sh ${CUDA_DEVICE} ${CARLA_PORT} ${METHOD_TAG} ${REPEAT_ID} ${AGENT_CONFIG} 4s
+bash scripts/batch_eval_driving_e2e.sh ${CUDA_DEVICE} ${CARLA_PORT} ${METHOD_TAG} ${REPEAT_ID} ${AGENT_CONFIG} 5s
+```
+
+### Closed-loop arguments
+
+- `ROUTE_ID`
+  - corresponds to `simulation/leaderboard/data/evaluation_routes/town05_short_r${ROUTE_ID}.xml`
+- `CARLA_PORT`
+  - must match the `--world-port` used when launching CARLA
+- `METHOD_TAG`
+  - experiment tag used in the saved result folder
+- `REPEAT_ID`
+  - repeat index for the current run
+- `AGENT_CONFIG`
+  - mapped to `simulation/leaderboard/team_code/agent_config/pnp_config_${AGENT_CONFIG}.yaml`
+  - edit the perception and planner checkpoint paths inside the config before evaluation
+- `SCENARIO_CONFIG`
+  - mapped to `simulation/leaderboard/leaderboard/scenarios/scenario_parameter${SCENARIO_CONFIG}.yaml`
+  - the provided batch script uses `_1` to `_5`
+
+## Checkpoints
+
+You can reuse the original V2Xverse public assets and then fine-tune the modified configs in this fork.
+
+Original resources:
+
+- dataset: https://huggingface.co/datasets/gjliu/V2Xverse
+- checkpoints: https://huggingface.co/gjliu/v2xverse
+
+Recommended local layout:
+
+```text
+checkpoints/
+  codriving/
+    perception/
+    planner/
+  early_fusion/
+    perception/
+    planner/
+  late_fusion/
+    perception/
+    planner/
+```
+
+If you use closed-loop evaluation, update the files under `simulation/leaderboard/team_code/agent_config/` so that:
+
+- `perception.perception_model_dir` points to your perception checkpoint folder
+- `planning.planner_model_checkpoint` points to your planner checkpoint file
+
+## Troubleshooting
+
+### CARLA egg mismatch
+
+If `scripts/check_closed_loop_env.py` reports that no CARLA egg matches the current Python:
+
+- activate a Python 3.7 environment, or
+- export `V2XVERSE_PYTHON` to a Python 3.7 interpreter that already has the required packages installed
+
+### Path issues in YAML configs
+
+This fork resolves paths beginning with `external_paths/` automatically. Prefer symlinks such as:
+
+```bash
+external_paths/carla_root -> /path/to/carla
+external_paths/data_root  -> /path/to/dataset_v2xverse
+```
+
+instead of editing multiple absolute paths in the YAML files.
+
+### Shut down simulation on Linux
+
+If CARLA processes hang, stop them manually:
+
+```bash
+ps U ${USER} | grep -E 'python|carla'
+kill -9 ${PID}
+pkill -u ${USER} -f carla
+```
+
+## Acknowledgements
+
 This implementation is based on code from several repositories.
-- [Carla leaderboard](https://github.com/carla-simulator/leaderboard)
+
+- [CARLA leaderboard](https://github.com/carla-simulator/leaderboard)
 - [Scenario runner](https://github.com/carla-simulator/scenario_runner)
 - [Interfuser](https://github.com/opendilab/InterFuser)
-- [Opencood](https://github.com/DerrickXuNu/OpenCOOD)
+- [OpenCOOD](https://github.com/DerrickXuNu/OpenCOOD)
 - [HEAL](https://github.com/yifanlu0227/HEAL)
 
 ## Citation
-```
+
+If you use this repository, please cite the original V2Xverse paper:
+
+```bibtex
 @article{liu2024codriving,
   title={Towards Collaborative Autonomous Driving: Simulation Platform and End-to-End System},
   author={Liu, Genjia and Hu, Yue and Xu, Chenxin and Mao, Weibo and Ge, Junhao and Huang, Zhengxiang and Lu, Yifan and Xu, Yinda and Xia, Junkai and Wang, Yafei and others},

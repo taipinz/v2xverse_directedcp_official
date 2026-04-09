@@ -222,7 +222,7 @@ class CoDriving(nn.Module):
         split_x = torch.tensor_split(x, cum_sum_len[:-1].cpu())
         return split_x
 
-    def forward(self, x, rm, record_len, pairwise_t_matrix, backbone=None, waypoints=None):
+    def forward(self, x, rm, record_len, pairwise_t_matrix, backbone=None, waypoints=None, directed_cp_mask=None):
         """
         Fusion forwarding.
         
@@ -271,6 +271,14 @@ class CoDriving(nn.Module):
                     if self.communication:
                         batch_confidence_maps = self.regroup(rm, record_len)
                         _, communication_masks, communication_rates = self.naive_communication(batch_confidence_maps, record_len, pairwise_t_matrix, waypoints=waypoints)
+                        if directed_cp_mask is not None:
+                            mask = directed_cp_mask
+                            if mask.shape[1] != 1:
+                                mask = mask.mean(dim=1, keepdim=True)
+                            if mask.shape[-2:] != communication_masks.shape[-2:]:
+                                mask = F.interpolate(mask, size=communication_masks.shape[-2:], mode='nearest')
+                            communication_masks = communication_masks * mask
+                            communication_rates = self._compute_comm_rate(communication_masks, record_len)
                         # communication_masks = communication_masks.squeeze(0)
                         x = x * communication_masks
                     else:
@@ -327,6 +335,14 @@ class CoDriving(nn.Module):
             ############ 2. Communication (Mask the features) #########
             if self.communication:
                 _, communication_masks, communication_rates = self.naive_communication(batch_confidence_maps, record_len, pairwise_t_matrix)
+                if directed_cp_mask is not None:
+                    mask = directed_cp_mask
+                    if mask.shape[1] != 1:
+                        mask = mask.mean(dim=1, keepdim=True)
+                    if mask.shape[-2:] != communication_masks.shape[-2:]:
+                        mask = F.interpolate(mask, size=communication_masks.shape[-2:], mode='nearest')
+                    communication_masks = communication_masks * mask
+                    communication_rates = self._compute_comm_rate(communication_masks, record_len)
             else:
                 communication_rates = torch.tensor(0).to(x.device)
             
@@ -348,3 +364,24 @@ class CoDriving(nn.Module):
             x_fuse = torch.stack(x_fuse)
         
         return x_fuse, communication_rates, {'features_before_fusion':feature_list}  # ms_atten x:[1, 384, 96, 288]
+
+    @staticmethod
+    def _compute_comm_rate(communication_masks, record_len):
+        """
+        Recompute communication rate after external masking.
+        """
+        _, _, H, W = communication_masks.shape
+        start = 0
+        rates = []
+        for cav_num in record_len.tolist():
+            if cav_num <= 0:
+                continue
+            if cav_num > 1:
+                rate = communication_masks[start + 1:start + cav_num].sum() / (H * W)
+            else:
+                rate = torch.tensor(0.0, device=communication_masks.device)
+            rates.append(rate)
+            start += cav_num
+        if not rates:
+            return torch.tensor(0.0, device=communication_masks.device)
+        return sum(rates) / len(rates)
