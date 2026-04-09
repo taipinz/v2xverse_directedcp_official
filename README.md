@@ -463,7 +463,7 @@ This implementation is based on code from several repositories.
 - [Interfuser](https://github.com/opendilab/InterFuser)
 - [OpenCOOD](https://github.com/DerrickXuNu/OpenCOOD)
 - [HEAL](https://github.com/yifanlu0227/HEAL)
-- [v2xverse](https://github.com/CollaborativePerception/V2Xverse)
+- [V2Xverse](https://github.com/CollaborativePerception/V2Xverse)
 
 ## Citation
 
